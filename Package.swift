@@ -11,7 +11,7 @@ let package = Package(
   platforms: [.macOS(.v26)],
   products: [
     .executable(name: "minibox-run", targets: ["MiniboxRun"]),
-    .executable(name: "minibox-install", targets: ["MiniboxInstall"]),
+    .executable(name: "minibox-create-base", targets: ["MiniboxCreateBase"]),
   ],
   dependencies: [
     .package(
@@ -22,7 +22,7 @@ let package = Package(
   targets: [
     .executableTarget(name: "MiniboxRun"),
     .executableTarget(
-      name: "MiniboxInstall",
+      name: "MiniboxCreateBase",
       dependencies: [
         .product(
           name: "ArgumentParser",

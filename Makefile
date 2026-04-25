@@ -6,8 +6,8 @@ build:
 
 .PHONY: codesign
 codesign:
-	codesign --entitlements minibox-entitlements.plist --options runtime --sign - --force .build/$(CONFIGURATION)/minibox-install
-	codesign --entitlements minibox-entitlements.plist --options runtime --sign - --force .build/$(CONFIGURATION)/minibox-run
+	codesign --entitlements entitlements.plist --options runtime --sign - --force .build/$(CONFIGURATION)/minibox-create-base
+	codesign --entitlements entitlements.plist --options runtime --sign - --force .build/$(CONFIGURATION)/minibox-run
 
 .PHONY: all
 all: build codesign

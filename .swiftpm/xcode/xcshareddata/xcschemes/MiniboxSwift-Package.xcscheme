@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "minibox-install"
-               BuildableName = "minibox-install"
-               BlueprintName = "minibox-install"
+               BlueprintIdentifier = "minibox-create-base"
+               BuildableName = "minibox-create-base"
+               BlueprintName = "minibox-create-base"
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
@@ -58,9 +58,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "minibox-install"
-            BuildableName = "minibox-install"
-            BlueprintName = "minibox-install"
+            BlueprintIdentifier = "minibox-create-base"
+            BuildableName = "minibox-create-base"
+            BlueprintName = "minibox-create-base"
             ReferencedContainer = "container:">
          </BuildableReference>
       </MacroExpansion>
