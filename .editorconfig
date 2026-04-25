@@ -13,3 +13,8 @@ trim_trailing_whitespace = true
 [*.swift]
 indent_style = space
 indent_size = 2
+
+[Makefile]
+indent_style = tab
+indent_size = tab
+tab_width = 8
