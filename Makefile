@@ -1,15 +1,13 @@
 CONFIGURATION ?= release
 
-BUILD_PATH = ./.build/$(CONFIGURATION)
-
-.PHONY: all build sign
-
-all: build sign
-
+.PHONY: build
 build:
-	swift build --configuration "$(CONFIGURATION)" --disable-sandbox
+	swift build --configuration release --disable-sandbox
 
-sign:
-	codesign --entitlements entitlements.plist --force --sign - "$(BUILD_PATH)/minibox-install"
-	codesign --entitlements entitlements.plist --force --sign - "$(BUILD_PATH)/minibox-run"
+.PHONY: codesign
+codesign:
+	codesign --entitlements minibox-entitlements.plist --options runtime --sign - --force .build/$(CONFIGURATION)/minibox-install
+	codesign --entitlements minibox-entitlements.plist --options runtime --sign - --force .build/$(CONFIGURATION)/minibox-run
 
+.PHONY: all
+all: build codesign
