@@ -51,3 +51,13 @@ jobs:
         shell: bash --noprofile --norc -euo pipefail -O nullglob {0}
         run: |
           /home/linuxbrew/.linuxbrew/bin/swift-format lint --recursive . --strict
+
+  accept-check:
+    name: Accept Check CI
+    needs: [check-swift-format]
+    runs-on: ubuntu-slim
+    permissions: {}
+    steps:
+      - name: Accept plugin
+        run: |
+          echo "Check CI passed."
