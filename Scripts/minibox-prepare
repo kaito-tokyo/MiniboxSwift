@@ -1,0 +1,164 @@
+#!/bin/zsh
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+setopt errexit nounset nullglob pipefail warn_create_global
+
+usage() {
+	printf 'Usage: minibox prepare --base-image-name=NAME\n'
+	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
+	printf '  --variant=NAME          Variant name for preparation prcoess. Mandatory.\n'
+	printf '  --step=NAME	          Step name to execute. Optional.\n'
+	printf '  --force                 Force to overwrite existing files.\n'
+}
+
+: "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
+export MINIBOX_DATA_DIR
+
+local i=1
+typeset -A opts
+while ((i <= $#)); do
+	case ${@[i]} in
+	--help)
+		usage >&2
+		exit 64
+		;;
+	--base-image-name=* | --variant=* | --step=*)
+		opts[${@[i]%%=*}]=${@[i]#*=}
+		i=$((i + 1))
+		;;
+	--base-image-name | --variant | --step)
+		if ((i + 1 <= $#)); then
+			opts[${@[i]}]=${@[i + 1]}
+			i=$((i + 2))
+		else
+			printf 'ERROR: %s requires NAME.\n' "${@[i]}" >&2
+			usage >&2
+			exit 64
+		fi
+		;;
+	--force)
+		opts[${@[i]}]=1
+		i=$((i + 1))
+		;;
+	*)
+		printf 'ERROR: Unknown option %s\n' "${@[i]}" >&2
+		usage >&2
+		exit 64
+		;;
+	esac
+done
+
+if ((${+opts[--base-image-name]} == 0)); then
+	printf 'ERROR: --base-image-name is required.\n' >&2
+	usage >&2
+	exit 64
+fi
+
+if ((${+opts[--variant]} == 0)); then
+	printf 'ERROR: --variant is required.\n' >&2
+	usage >&2
+	exit 64
+fi
+
+minibox-prepare-github() {
+	setopt errexit nounset nullglob pipefail warn_create_global
+
+	local srcBaseImagePath destBaseImagePath volumePath
+
+	srcBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}"
+	destBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}_${opts[--variant]}.vbvm"
+	volumePath="${MINIBOX_DATA_DIR}/Volumes/${opts[--base-image-name]}_${opts[--variant]}"
+
+	case "${opts[--step]:-all}" in
+	all)
+		local scriptPath="${(%):-%x}"
+		"${scriptPath}" "$@" --step=clone
+		trap "diskutil eject \"${volumePath}/Data\" || true" INT TERM EXIT
+		"${scriptPath}" "$@" --step=mount
+		printf '#==> Requiring root privileges via sudo...\n'
+		sudo "${scriptPath}" "$@" --step=modify-data-volume
+		exit 0
+		;;
+	clone)
+		if [[ -d "${destBaseImagePath}" ]]; then
+			if (( ${+opts[--force]} )); then
+				printf '#==> Removing existing base image: %s\n' "${destBaseImagePath}"
+				rm -rf "${destBaseImagePath}"
+			else
+				printf 'ERROR: Base image already exists: %s\n' "${destBaseImagePath}" >&2
+				exit 1
+			fi
+		fi
+
+		printf '#==> Cloning base image: %s\n' "${srcBaseImagePath}"
+		cp -cR "${srcBaseImagePath}" "${destBaseImagePath}"
+		exit 0
+		;;
+	mount)
+		local attachPlist devEntry mountPoint
+		mountPoint="${volumePath}/Data"
+		printf '#==> Mounting Disk.asif: %s\n' "${mountPoint}"
+
+		attachPlist=$(diskutil image attach --plist --noMount "${destBaseImagePath}/Disk.asif")
+		devEntry=$(<<<${attachPlist} plutil -convert json -o - - | jq -r '.["system-entities"][] | select(.role == "Data") | .["dev-entry"]')
+		mkdir -p "${mountPoint}"
+		diskutil umount ${volumePath}/Data >/dev/null 2>&1 || true
+		diskutil mount -mountOptions owners -mountPoint "${mountPoint}" "/dev/${devEntry}"
+		exit 0
+		;;
+	modify-data-volume)
+		# Fallthrough to the bottom of minibox-prepare-github
+		;;
+	*)
+		printf 'ERROR: Unknown step: %s\n' "${opts[--step]}" >&2
+		exit 64
+		;;
+	esac
+
+	cd "${volumePath}/Data"
+
+	# touch private/var/db/.AppleSetupDone
+	# chmod 400 private/var/db/.AppleSetupDone
+
+	<<'EOF' cat > Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<false/>
+	<key>Label</key>
+	<string>tokyo.kaito.MiniboxSwift.minibox-init</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/dash</string>
+		<string>/usr/local/libexec/minibox-init.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+</dict>
+</plist>
+EOF
+	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+
+	mkdir -p usr/local/libexec
+	<<'EOF' cat > usr/local/libexec/minibox-init.sh
+sysadminctl -addUser runner -password runner -admin
+sysadminctl -autologin set -userName runner -password runner
+EOF
+	chmod 755 usr/local/libexec/minibox-init.sh
+}
+
+prepare_command="minibox-prepare-$opts[--variant]"
+
+if ! whence "${prepare_command}" >/dev/null 2>&1; then
+	printf 'ERROR: Unsupported variant: %s\n' "$opts[--variant]" >&2
+	printf 'ERROR: Command %s not found.\n' "${prepare_command}" >&2
+	usage >&2
+	exit 127
+fi
+
+"${prepare_command}" "$@"
