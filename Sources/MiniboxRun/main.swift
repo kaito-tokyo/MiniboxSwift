@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// minibox-run: Minimum macOS runner based on Virtualization.framework
+// minibox-run: Minimum macOS runner based on Virtualization.framework.
 
 import Foundation
 import Virtualization
