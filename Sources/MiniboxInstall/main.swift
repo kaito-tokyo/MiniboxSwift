@@ -49,7 +49,6 @@ private func createAndSaveVMConfig(
     machineIdentifierURL: URL,
     auxiliaryStorageURL: URL,
     storageURLs: [URL],
-    storageSizes: [Int],
     restoreImage: VZMacOSRestoreImage
 )
     throws -> VZVirtualMachineConfiguration
@@ -96,41 +95,13 @@ private func createAndSaveVMConfig(
     networkConfig.attachment = VZNATNetworkDeviceAttachment()
     config.networkDevices = [networkConfig]
 
-    for (storageURL, storageSize) in zip(storageURLs, storageSizes) {
-        if storageURL.pathExtension == "asif" {
-            let process = Process()
-
-            process.executableURL = URL(filePath: "/usr/sbin/diskutil")
-            process.arguments = [
-                "image",
-                "create",
-                "blank",
-                "--format",
-                "ASIF",
-                "--size",
-                "\(storageSize)",
-                "--fs",
-                "None",
-                storageURL.path(percentEncoded: false),
-            ]
-
-            try process.run()
-            process.waitUntilExit()
-
-            let storageAttachment = try VZDiskImageStorageDeviceAttachment(
-                url: storageURL,
+    config.storageDevices = try storageURLs.map {
+        VZVirtioBlockDeviceConfiguration(
+            attachment: try VZDiskImageStorageDeviceAttachment(
+                url: $0,
                 readOnly: false
             )
-
-            config.storageDevices.append(
-                VZVirtioBlockDeviceConfiguration(attachment: storageAttachment)
-            )
-        } else {
-            logStderr(
-                .info,
-                "Unsupported file type: \(storageURL.pathExtension)"
-            )
-        }
+        )
     }
 
     config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
@@ -159,6 +130,27 @@ private func createAndSaveVMConfig(
     return config
 }
 
+func createBlankASIF(url: URL, size: Int) throws {
+    let process = Process()
+
+    process.executableURL = URL(filePath: "/usr/sbin/diskutil")
+    process.arguments = [
+        "image",
+        "create",
+        "blank",
+        "--format",
+        "ASIF",
+        "--size",
+        "\(size)",
+        "--fs",
+        "None",
+        url.path(percentEncoded: false),
+    ]
+
+    try process.run()
+    process.waitUntilExit()
+}
+
 struct CreateBaseImage: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Creates base images."
@@ -168,7 +160,7 @@ struct CreateBaseImage: ParsableCommand {
     var ipswPath: String
 
     @Option(help: "The storage size to be created in bytes.")
-    var storageSize: Int = 256 * 1024 * 1024 * 1024
+    var diskSize: Int = 256 * 1024 * 1024 * 1024
 
     @Flag
     var force = false
@@ -186,50 +178,6 @@ struct CreateBaseImage: ParsableCommand {
 
     func run() throws {
         let ipswURL = URL(filePath: ipswPath)
-        let baseImageName = ipswURL.deletingPathExtension().lastPathComponent
-        let baseImageURL = kMiniboxSwiftBaseImageDirectoryPrefix.appending(
-            path: baseImageName,
-            directoryHint: .isDirectory
-        )
-
-        print("==> Installing a new template...")
-        print("ipswPath=\(ipswURL.path(percentEncoded: false))")
-        print("baseImageName=\(baseImageName)")
-        print("baseImagePath=\(baseImageURL.path(percentEncoded: false))")
-
-        if !yes {
-            print("==> Are you sure to install? [Y/n] ", terminator: "")
-            let answer = readLine(strippingNewline: true)
-            if let answer, answer != "", !answer.starts(with: /[yY]/) {
-                print("Aborting...")
-                throw ExitCode.failure
-            }
-        }
-
-        print("==> Installing \(baseImageName)...")
-
-        if fileManager.fileExists(
-            atPath: baseImageURL.path(percentEncoded: false)
-        ) {
-            if force {
-                logStderr(
-                    .info,
-                    "Removing a template named \(baseImageName) and keep going..."
-                )
-                try fileManager.removeItem(at: baseImageURL)
-            } else {
-                logStderr(
-                    .error,
-                    "There is already a base image named \(baseImageName)! Exiting..."
-                )
-                throw ExitCode.failure
-            }
-        }
-
-        try fileManager.createDirectory(
-            at: baseImageURL,
-            withIntermediateDirectories: true
-        )
 
         let exitLock = OSAllocatedUnfairLock<(any Error)?>(initialState: nil)
 
@@ -248,6 +196,89 @@ struct CreateBaseImage: ParsableCommand {
                 let wrappedRestoreImage = SendableWrapper(value: restoreImage)
                 DispatchQueue.main.async {
                     let restoreImage = wrappedRestoreImage.value
+                    
+                    let osVersion = restoreImage.operatingSystemVersion
+                    let versionString = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
+
+                    let baseImageName =
+                        "macOS_\(versionString)_\(restoreImage.buildVersion)_\(diskSize)"
+                    let baseImageURL =
+                        kMiniboxSwiftBaseImageDirectoryPrefix.appending(
+                            path: baseImageName,
+                            directoryHint: .isDirectory
+                        )
+
+                    print("==> Installing a new template...")
+                    print("ipswPath=\(ipswURL.path(percentEncoded: false))")
+                    print("baseImageName=\(baseImageName)")
+                    print(
+                        "baseImagePath=\(baseImageURL.path(percentEncoded: false))"
+                    )
+
+                    if !yes {
+                        print(
+                            "==> Are you sure to install? [Y/n] ",
+                            terminator: ""
+                        )
+                        let answer = readLine(strippingNewline: true)
+                        if let answer, answer != "",
+                            !answer.starts(with: /[yY]/)
+                        {
+                            logStderr(.error, "Aborting...")
+                            exitLock.withLock { $0 = ExitCode.failure }
+                            return
+                        }
+                    }
+
+                    print("==> Installing \(baseImageName)...")
+
+                    if fileManager.fileExists(
+                        atPath: baseImageURL.path(percentEncoded: false)
+                    ) {
+                        if force {
+                            logStderr(
+                                .info,
+                                "Removing a template named \(baseImageName) and keep going..."
+                            )
+                            do {
+                                try fileManager.removeItem(at: baseImageURL)
+                            } catch {
+                                logStderr(.error, error.localizedDescription)
+                                exitLock.withLock { $0 = ExitCode.failure }
+                                return
+                            }
+                        } else {
+                            logStderr(
+                                .error,
+                                "There is already a base image named \(baseImageName)! Exiting..."
+                            )
+                            exitLock.withLock { $0 = ExitCode.failure }
+                            return
+                        }
+                    }
+
+                    do {
+                        try fileManager.createDirectory(
+                            at: baseImageURL,
+                            withIntermediateDirectories: true
+                        )
+                    } catch {
+                        logStderr(.error, error.localizedDescription)
+                        exitLock.withLock { $0 = ExitCode.failure }
+                        return
+                    }
+
+                    let diskURL = baseImageURL.appendingPathComponent(
+                        "Disk.asif"
+                    )
+                    do {
+                        try createBlankASIF(url: diskURL, size: diskSize)
+                    } catch {
+                        logStderr(.error, error.localizedDescription)
+                        exitLock.withLock { $0 = ExitCode.failure }
+                        return
+                    }
+
                     let config: VZVirtualMachineConfiguration
                     do {
                         config = try createAndSaveVMConfig(
@@ -260,10 +291,7 @@ struct CreateBaseImage: ParsableCommand {
                             auxiliaryStorageURL: baseImageURL.appending(
                                 path: "AuxiliaryStorage"
                             ),
-                            storageURLs: [
-                                baseImageURL.appending(path: "Disk.asif")
-                            ],
-                            storageSizes: [storageSize],
+                            storageURLs: [diskURL],
                             restoreImage: restoreImage
                         )
                     } catch {
