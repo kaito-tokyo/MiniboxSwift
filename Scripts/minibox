@@ -1,0 +1,37 @@
+#!/bin/dash
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+usage() {
+  printf 'Usage: minibox <subcommand> [args...]\n'
+  printf 'Available subcommands:\n'
+  printf '  create-base\tCreates the base image.\n'
+  printf '  run        \tRuns the runner.\n'
+}
+
+if [ "$#" -eq 0 ]; then
+  usage
+  exit 64
+fi
+
+case "$1" in
+create-base | run)
+  subcommand="minibox-$1"
+  shift
+  ;;
+*)
+  printf 'Unknown subcommand: %s\n' "$1" >&2
+  usage
+  exit 64
+  ;;
+esac
+
+if [ -n "${MINIBOX_PATH-}" ]; then
+  PATH="${MINIBOX_PATH}:${PATH}"
+fi
+
+exec "${subcommand}" "$@"
