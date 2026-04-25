@@ -9,12 +9,12 @@ set -eu
 usage() {
   printf 'Usage: minibox <subcommand> [args...]\n'
   printf 'Available subcommands:\n'
-  printf '  create-base\tCreates the base image.\n'
-  printf '  run        \tRuns the runner.\n'
+  printf '  create-base  Creates the base image.\n'
+  printf '  run          Runs the runner.\n'
 }
 
 if [ "$#" -eq 0 ]; then
-  usage
+  usage >&2
   exit 64
 fi
 
@@ -25,13 +25,18 @@ create-base | run)
   ;;
 *)
   printf 'Unknown subcommand: %s\n' "$1" >&2
-  usage
+  usage >&2
   exit 64
   ;;
 esac
 
 if [ -n "${MINIBOX_PATH-}" ]; then
   PATH="${MINIBOX_PATH}:${PATH}"
+fi
+
+if ! command -v "${subcommand}" >/dev/null 2>&1; then
+  printf 'Subcommand not found: %s\n' "${subcommand}" >&2
+  exit 127
 fi
 
 exec "${subcommand}" "$@"
