@@ -16,7 +16,7 @@ on:
     branches: [main]
     tags: ['*']
   pull_request:
-    branches: [main]
+  merge_group:
 
 permissions: {}
 

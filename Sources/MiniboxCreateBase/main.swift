@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// minibox-install: Prepare your VM for minibox-run.
+// minibox-create-base: Creates a base image from ipsw.
 
 import ArgumentParser
 import Foundation
 import Virtualization
 import os
 
-public let kMiniboxSwiftBaseImageDirectoryPrefix = URL
+let kMiniboxSwiftBaseImageDirectoryPrefix = URL
   .applicationSupportDirectory
   .appending(
     path: "tokyo.kaito.MiniboxSwift/BaseImages",
@@ -18,12 +18,6 @@ public let kMiniboxSwiftBaseImageDirectoryPrefix = URL
 
 enum MiniboxInstallError: Error {
   case requirementsNotAvailableError
-  case hardwareModelLoadError
-  case machineIndentifierLoadError
-  case invalidMACAddressError
-  case runnerDirectoryAlreadyExistsError
-  case runnerAlreadyStartedError
-  case getIPAddressError
 }
 
 private func logStderr(_ level: OSLogType, _ message: String) {
@@ -130,7 +124,7 @@ private func createAndSaveVMConfig(
   return config
 }
 
-func createBlankASIF(url: URL, size: Int) throws {
+private func createBlankASIF(url: URL) throws {
   let process = Process()
 
   process.executableURL = URL(filePath: "/usr/sbin/diskutil")
@@ -141,7 +135,7 @@ func createBlankASIF(url: URL, size: Int) throws {
     "--format",
     "ASIF",
     "--size",
-    "\(size)",
+    "64GB",
     "--fs",
     "None",
     url.path(percentEncoded: false),
@@ -151,16 +145,9 @@ func createBlankASIF(url: URL, size: Int) throws {
   process.waitUntilExit()
 }
 
-struct CreateBaseImage: ParsableCommand {
-  static let configuration = CommandConfiguration(
-    abstract: "Creates base images."
-  )
-
+struct MiniboxCreateBase: ParsableCommand {
   @Option(help: "Path to ipsw.")
   var ipswPath: String
-
-  @Option(help: "The storage size to be created in bytes.")
-  var diskSize: Int = 256 * 1024 * 1024 * 1024
 
   @Flag
   var force = false
@@ -202,7 +189,7 @@ struct CreateBaseImage: ParsableCommand {
             "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
 
           let baseImageName =
-            "macOS_\(versionString)_\(restoreImage.buildVersion)_\(diskSize)"
+            "macOS_\(versionString)_\(restoreImage.buildVersion)"
           let baseImageURL =
             kMiniboxSwiftBaseImageDirectoryPrefix.appending(
               path: baseImageName,
@@ -273,7 +260,7 @@ struct CreateBaseImage: ParsableCommand {
             "Disk.asif"
           )
           do {
-            try createBlankASIF(url: diskURL, size: diskSize)
+            try createBlankASIF(url: diskURL)
           } catch {
             logStderr(.error, error.localizedDescription)
             exitLock.withLock { $0 = ExitCode.failure }
@@ -352,12 +339,4 @@ struct CreateBaseImage: ParsableCommand {
   }
 }
 
-struct MiniboxInstall: ParsableCommand {
-  static let configuration = CommandConfiguration(
-    commandName: "minibox-install",
-    abstract: "Install subsystem for MiniboxSwift",
-    subcommands: [CreateBaseImage.self],
-  )
-}
-
-MiniboxInstall.main()
+MiniboxCreateBase.main()

@@ -12,11 +12,11 @@ name: Check CI
 # date: 2026-04-25
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
-    tags: ["*"]
+    tags: ['*']
+  pull_request:
+  merge_group:
 
 permissions: {}
 
