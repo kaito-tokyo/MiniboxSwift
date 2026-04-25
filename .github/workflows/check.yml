@@ -29,13 +29,10 @@ env:
 jobs:
   check-swift-format:
     name: Check swift-format
-
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-
     permissions:
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -52,9 +49,33 @@ jobs:
         run: |
           /home/linuxbrew/.linuxbrew/bin/swift-format lint --recursive . --strict
 
+  check-yaml-format:
+    name: Check yamlfmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install yamlfmt with Linuxbrew
+        shell: bash --noprofile --norc -euo pipefail -O nullglob {0}
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/brew install yamlfmt
+
+      - name: Check with yamlfmt
+        shell: bash --noprofile --norc -euo pipefail -O nullglob {0}
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/yamlfmt ーlint .
+
   accept-check:
     name: Accept Check CI
-    needs: [check-swift-format]
+    needs:
+      - check-swift-format
+      - check-yaml-format
     runs-on: ubuntu-slim
     permissions: {}
     steps:

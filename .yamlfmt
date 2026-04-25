@@ -1,0 +1,8 @@
+gitignore_excludes: true
+
+formatter:
+  type: basic
+  indent: 2
+  eof_newline: true
+  max_line_length: 0
+  retain_line_breaks_single: true

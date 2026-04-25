@@ -1,9 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
 #
 # SPDX-License-Identifier: Apache-2.0
-
 version: 2
-
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -11,7 +9,6 @@ updates:
       interval: weekly
     exclude-paths:
       - ".github/workflows/*.lock.yml"
-
   - package-ecosystem: swift
     directory: /
     schedule:
