@@ -7,11 +7,11 @@
 setopt errexit nounset nullglob pipefail warn_create_global
 
 usage() {
-	printf 'Usage: minibox prepare --base-image-name=NAME\n'
+	printf 'Usage: minibox prepare --base-image-name=NAME --variant=NAME\n'
 	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
-	printf '  --variant=NAME          Variant name for preparation prcoess. Mandatory.\n'
-	printf '  --step=NAME	          Step name to execute. Optional.\n'
+	printf '  --variant=NAME          Variant name for preparation process. Mandatory.\n'
 	printf '  --force                 Force to overwrite existing files.\n'
+	printf '  --step=NAME	          Step name to execute. Optional.\n'
 }
 
 : "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
@@ -51,7 +51,7 @@ while ((i <= $#)); do
 	esac
 done
 
-if ((${+opts[--base-image-name]} == 0)); then
+if ((${+opts[--base - image - name]} == 0)); then
 	printf 'ERROR: --base-image-name is required.\n' >&2
 	usage >&2
 	exit 64
@@ -68,9 +68,9 @@ minibox-prepare-github() {
 
 	local srcBaseImagePath destBaseImagePath volumePath
 
-	srcBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}"
-	destBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}_${opts[--variant]}.vbvm"
-	volumePath="${MINIBOX_DATA_DIR}/Volumes/${opts[--base-image-name]}_${opts[--variant]}"
+	srcBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base - image - name]}"
+	destBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base - image - name]}_${opts[--variant]}.vbvm"
+	volumePath="${MINIBOX_DATA_DIR}/Volumes/${opts[--base - image - name]}_${opts[--variant]}"
 
 	case "${opts[--step]:-all}" in
 	all)
@@ -84,7 +84,7 @@ minibox-prepare-github() {
 		;;
 	clone)
 		if [[ -d "${destBaseImagePath}" ]]; then
-			if (( ${+opts[--force]} )); then
+			if ((${+opts[--force]})); then
 				printf '#==> Removing existing base image: %s\n' "${destBaseImagePath}"
 				rm -rf "${destBaseImagePath}"
 			else
@@ -102,10 +102,14 @@ minibox-prepare-github() {
 		mountPoint="${volumePath}/Data"
 		printf '#==> Mounting Disk.asif: %s\n' "${mountPoint}"
 
-		attachPlist=$(diskutil image attach --plist --noMount "${destBaseImagePath}/Disk.asif")
-		devEntry=$(<<<${attachPlist} plutil -convert json -o - - | jq -r '.["system-entities"][] | select(.role == "Data") | .["dev-entry"]')
+		attachPlist=$()
+		devEntry=$(
+			diskutil image attach --plist --noMount "${destBaseImagePath}/Disk.asif" |
+				plutil -convert json -o - - |
+				jq -r '.["system-entities"][] | select(.role == "Data") | .["dev-entry"]'
+		)
 		mkdir -p "${mountPoint}"
-		diskutil umount ${volumePath}/Data >/dev/null 2>&1 || true
+		diskutil umount "${volumePath}/Data" >/dev/null 2>&1 || true
 		diskutil mount -mountOptions owners -mountPoint "${mountPoint}" "/dev/${devEntry}"
 		exit 0
 		;;
@@ -123,7 +127,7 @@ minibox-prepare-github() {
 	# touch private/var/db/.AppleSetupDone
 	# chmod 400 private/var/db/.AppleSetupDone
 
-	<<'EOF' cat > Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+	cat <<'EOF' >Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -145,7 +149,7 @@ EOF
 	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
 
 	mkdir -p usr/local/libexec
-	<<'EOF' cat > usr/local/libexec/minibox-init.sh
+	cat <<'EOF' >usr/local/libexec/minibox-init.sh
 sysadminctl -addUser runner -password runner -admin
 sysadminctl -autologin set -userName runner -password runner
 EOF

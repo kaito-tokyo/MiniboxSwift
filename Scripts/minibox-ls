@@ -24,6 +24,8 @@ else
 		;;
 	*)
 		printf 'Unknown argument: %s\n' "$1" >&2
+		usage >&2
+		exit 64
 		;;
 	esac
 fi

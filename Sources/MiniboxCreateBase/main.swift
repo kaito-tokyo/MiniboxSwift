@@ -11,6 +11,7 @@ import os
 
 enum MiniboxCreateBaseError: Error {
     case requirementsNotAvailableError
+    case asifCreationError
 }
 
 private func logStderr(_ level: OSLogType, _ message: String) {
@@ -136,6 +137,9 @@ private func createBlankASIF(url: URL) throws {
 
     try process.run()
     process.waitUntilExit()
+    if process.terminationStatus != 0 {
+        throw MiniboxCreateBaseError.asifCreationError
+    }
 }
 
 struct Macos: ParsableCommand {
@@ -331,6 +335,7 @@ struct Macos: ParsableCommand {
                 }
             case .failure(let error):
                 logStderr(.error, error.localizedDescription)
+                exitLock.withLock { $0 = ExitCode.failure }
             }
         }
 
