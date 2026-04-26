@@ -147,6 +147,7 @@ struct Macos: ParsableCommand {
         commandName: "macos",
         abstract: "Creates a macOS base image from IPSW."
     )
+
     @Option(help: "Path to ipsw.")
     var ipswPath: String
 
@@ -200,7 +201,7 @@ struct Macos: ParsableCommand {
                         "macOS_\(versionString)_\(restoreImage.buildVersion)"
                     let baseImageURL =
                         miniboxDataURL.appending(
-                            path: "BaseImages/\(baseImageName)/",
+                            path: "BaseImages/\(baseImageName).miniboxvm/",
                         )
 
                     print("==> Installing a new template...")

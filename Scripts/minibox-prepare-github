@@ -1,0 +1,133 @@
+#!/bin/zsh
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+setopt errexit nounset nullglob pipefail warn_create_global
+
+: "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
+export MINIBOX_DATA_DIR
+
+usage() {
+	printf 'Usage: minibox-prepare-github --base-image-name=NAME --variant=NAME\n'
+	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
+	printf '  --variant=NAME          Variant name for preparation process. Mandatory.\n'
+	printf '  --agentic-advice        Enable agentic advice for setup using Ollama.\n'
+	printf '  --no-sudo               Do not use sudo for operations. Optional.\n'
+	printf '  --force                 Force to overwrite existing files.\n'
+	printf '  --step=NAME	          Step name to execute. Internal use only.\n'
+}
+
+typeset -A opts
+while (($#)); do
+	case $1 in
+	--) break ;;
+	--*=*) opts[${1%%=*}]=${1#*=}; shift ;;
+	--*) opts[$1]=${${2-}##--*}; shift ${${opts[$1]:+2}:-1} ;;
+	*) shift ;;
+	esac
+done
+
+if [[ -z ${opts[--base-image-name]-} ]]; then
+	printf 'ERROR: --base-image-name is required.\n' >&2
+	usage >&2
+	exit 64
+fi
+
+srcBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}.miniboxvm"
+destBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}_${opts[--variant]}.miniboxvm"
+volumePath="${MINIBOX_DATA_DIR}/Volumes/${opts[--base-image-name]}_${opts[--variant]}"
+scriptPath="$0"
+if ((${+opts[--no-sudo]})); then
+	sudo=:
+else
+	sudo=sudo
+fi
+
+minibox-prepare-github-all() {
+	trap "diskutil eject \"${volumePath}/Data\" >/dev/null 2>&1 || true" INT TERM EXIT
+	minibox-prepare-github-clone "${(kv)opts[@]}"
+	minibox-prepare-github-mount "${(kv)opts[@]}"
+	"${sudo}" "${scriptPath}" "${(kv)opts[@]}" --step=sudomodify
+	minibox-prepare-github-eject
+	minibox-prepare-github-manualsetup "${(kv)opts[@]}"
+}
+
+minibox-prepare-github-clone() {
+	if [[ -d "${destBaseImagePath}" ]]; then
+		if ((${+opts[--force]})); then
+			printf '#==> Removing existing base image: %s\n' "${destBaseImagePath}"
+			rm -rf "${destBaseImagePath}"
+		else
+			printf 'ERROR: Base image already exists: %s\n' "${destBaseImagePath}" >&2
+			exit 1
+		fi
+	fi
+
+	printf '#==> Cloning base image: %s\n' "${srcBaseImagePath}"
+	cp -cR "${srcBaseImagePath}" "${destBaseImagePath}"
+}
+
+minibox-prepare-github-mount() {
+	local attachPlist devEntry mountPoint
+	mountPoint="${volumePath}/Data"
+	mkdir -p "${mountPoint}"
+
+	printf '#==> Mounting Disk.asif: %s\n' "${mountPoint}"
+	devEntry=$(
+		diskutil image attach --plist --noMount "${destBaseImagePath}/Disk.asif" |
+			plutil -convert json -o - - |
+			jq -r '.["system-entities"][] | select(.role == "Data") | .["dev-entry"]'
+	)
+	diskutil umount "${volumePath}/Data" >/dev/null 2>&1 || true
+	diskutil mount -mountOptions owners -mountPoint "${mountPoint}" "/dev/${devEntry}"
+}
+
+minibox-prepare-github-sudomodify() {
+	cd "${volumePath}/Data"
+
+	cat <<'EOF' >Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<false/>
+	<key>Label</key>
+	<string>tokyo.kaito.MiniboxSwift.minibox-init</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/dash</string>
+		<string>/usr/local/libexec/minibox-init.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+</dict>
+</plist>
+EOF
+	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+
+	mkdir -p usr/local/libexec
+	cat <<'EOF' >usr/local/libexec/minibox-init.sh
+sysadminctl -addUser runner -password runner -admin
+sysadminctl -autologin set -userName runner -password runner
+EOF
+	chmod 755 usr/local/libexec/minibox-init.sh
+}
+
+minibox-prepare-github-eject() {
+	diskutil eject "${volumePath}/Data" || true
+}
+
+minibox-prepare-github-manualsetup() {
+	if ((${+opts[--agentic-advice]})); then
+		printf '#==> Starting manual setup with agentic assistance powered by Ollama...\n'
+		minibox-view --bundle-path "${destBaseImagePath}" --agentic-advice
+	else
+		printf '#==> Starting manual setup...\n'
+		minibox-view --bundle-path "${destBaseImagePath}"
+	fi
+}
+
+"minibox-prepare-github-${opts[--step]-all}" "${(kv)opts[@]}"
