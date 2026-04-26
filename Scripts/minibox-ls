@@ -1,0 +1,31 @@
+#!/bin/dash
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+usage() {
+	printf 'Usage: minibox ls [BaseImages]\n'
+}
+
+: "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
+
+MINIBOX_BASE_IMAGE_DIR="${MINIBOX_DATA_DIR}/BaseImages"
+
+if [ "$#" -eq 0 ]; then
+	printf '%s:\n' "${MINIBOX_BASE_IMAGE_DIR}"
+	ls "${MINIBOX_BASE_IMAGE_DIR}"
+else
+	case "$1" in
+	BaseImages)
+		ls "${MINIBOX_BASE_IMAGE_DIR}"
+		;;
+	*)
+		printf 'Unknown argument: %s\n' "$1" >&2
+		usage >&2
+		exit 64
+		;;
+	esac
+fi

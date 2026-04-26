@@ -6,7 +6,7 @@ SWIFT_SOURCES += entitlements.plist
 SWIFT_SOURCES += Package.swift
 SWIFT_SOURCES += Package.resolved
 
-SCRIPT_SOURCES := Scripts/minibox
+SCRIPT_SOURCES := $(wildcard Scripts/minibox*)
 
 BUILT_PRODUCTS_DIR := .build/$(CONFIGURATION)
 BUILD_STAMP := $(BUILT_PRODUCTS_DIR)/.make_build
@@ -30,6 +30,8 @@ $(CODESIGN_STAMP): $(BUILD_STAMP)
 install: $(CODESIGN_STAMP) $(SCRIPT_SOURCES)
 	install -Dm755 "$(BUILT_PRODUCTS_DIR)/minibox-create-base" "$(PREFIX)/bin/minibox-create-base"
 	install -Dm755 "$(BUILT_PRODUCTS_DIR)/minibox-run" "$(PREFIX)/bin/minibox-run"
+	install -Dm755 Scripts/minibox-ls "$(PREFIX)/bin/minibox-ls"
+	install -Dm755 Scripts/minibox-prepare "$(PREFIX)/bin/minibox-prepare"
 	install -Dm755 Scripts/minibox "$(PREFIX)/bin/minibox"
 
 .PHONY: clean
