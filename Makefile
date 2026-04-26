@@ -24,14 +24,17 @@ $(BUILD_STAMP): $(SWIFT_SOURCES)
 $(CODESIGN_STAMP): $(BUILD_STAMP)
 	codesign --entitlements entitlements.plist --options runtime --sign - --force "$(BUILT_PRODUCTS_DIR)/minibox-create-base"
 	codesign --entitlements entitlements.plist --options runtime --sign - --force "$(BUILT_PRODUCTS_DIR)/minibox-run"
+	codesign --entitlements entitlements.plist --options runtime --sign - --force "$(BUILT_PRODUCTS_DIR)/minibox-view"
 	touch "$(CODESIGN_STAMP)"
 
 .PHONY: install
 install: $(CODESIGN_STAMP) $(SCRIPT_SOURCES)
 	install -Dm755 "$(BUILT_PRODUCTS_DIR)/minibox-create-base" "$(PREFIX)/bin/minibox-create-base"
 	install -Dm755 "$(BUILT_PRODUCTS_DIR)/minibox-run" "$(PREFIX)/bin/minibox-run"
+	install -Dm755 "$(BUILT_PRODUCTS_DIR)/minibox-view" "$(PREFIX)/bin/minibox-view"
 	install -Dm755 Scripts/minibox-ls "$(PREFIX)/bin/minibox-ls"
 	install -Dm755 Scripts/minibox-prepare "$(PREFIX)/bin/minibox-prepare"
+	install -Dm755 Scripts/minibox-prepare-github "$(PREFIX)/bin/minibox-prepare-github"
 	install -Dm755 Scripts/minibox "$(PREFIX)/bin/minibox"
 
 .PHONY: clean

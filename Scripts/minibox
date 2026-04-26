@@ -12,6 +12,7 @@ usage() {
 	printf '  create-base  Creates a base image.\n'
 	printf '  prepare      Prepares a base image for automation.\n'
 	printf '  run          Runs a runner.\n'
+	printf '  view         Starts a new VM with a image bundle to view its contents.\n'
 	printf '  ls           Lists images on disk.\n'
 }
 
@@ -21,7 +22,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 case "$1" in
-create-base | ls | prepare | run)
+create-base | prepare | run | view | ls)
 	subcommand="minibox-$1"
 	shift
 	;;
