@@ -31,6 +31,7 @@ let package = Package(
             ]
         ),
         .executableTarget(name: "MiniboxRun"),
+        .testTarget(name: "MiniboxTests"),
     ],
     swiftLanguageModes: [.v6]
 )

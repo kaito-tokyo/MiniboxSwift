@@ -6,6 +6,8 @@ SWIFT_SOURCES += entitlements.plist
 SWIFT_SOURCES += Package.swift
 SWIFT_SOURCES += Package.resolved
 
+SWIFT_TEST_SOURCES := $(wildcard Tests/*/*.swift)
+
 SCRIPT_SOURCES := $(wildcard Scripts/minibox*)
 
 BUILT_PRODUCTS_DIR := .build/$(CONFIGURATION)
@@ -36,6 +38,10 @@ install: $(CODESIGN_STAMP) $(SCRIPT_SOURCES)
 	install -Dm755 Scripts/minibox-prepare "$(PREFIX)/bin/minibox-prepare"
 	install -Dm755 Scripts/minibox-prepare-github "$(PREFIX)/bin/minibox-prepare-github"
 	install -Dm755 Scripts/minibox "$(PREFIX)/bin/minibox"
+
+.PHONY: test
+test: $(SWIFT_SOURCES) $(SWIFT_TEST_SOURCES)
+	swift test --configuration "$(CONFIGURATION)" --disable-sandbox
 
 .PHONY: clean
 clean:
