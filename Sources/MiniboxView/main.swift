@@ -13,14 +13,13 @@
 import AppKit
 import Foundation
 import Virtualization
-import Vision
 import os
 
 private let kVersion = "0.1.0"
 
 private let kUsage = """
-    minibox-view: Starts a new VM with a image bundle to view its contents.
-    Usage: minibox view --bundle-path=PATH
+    minibox-view: Starts a new VM with an image bundle to view its contents.
+    Usage: minibox-view --bundle-path=PATH
       --bundle-path=PATH  Path to the image bundle. Mandatory.
       --cpu-count=3       vCPU count. Optional.
       --memory-mb=7168    Memory size in megabytes. Optional.
@@ -70,14 +69,14 @@ private func parseArgs(_ args: ArraySlice<String>) -> ([String: String], [String
     return (opts, posArgs)
 }
 
-let (opts, _) = parseArgs(CommandLine.arguments.dropFirst())
+var (opts, posArgs) = parseArgs(CommandLine.arguments.dropFirst())
 
-if opts["--help"] == "true" {
+if opts.removeValue(forKey: "--help") == "true" {
     logStderr(level: .default, kUsage)
-    exit(64)
-} else if opts["--version"] == "true" {
+    exit(0)
+} else if opts.removeValue(forKey: "--version") == "true" {
     print("miniboxViewVersion=\(kVersion)")
-    exit(64)
+    exit(0)
 }
 
 logStderr(level: .info, "minibox-view v\(kVersion)")
@@ -87,7 +86,7 @@ print(
     separator: "\t"
 )
 
-guard let bundlePath = opts["--bundle-path"] else {
+guard let bundlePath = opts.removeValue(forKey: "--bundle-path") else {
     logStderr(level: .default, kUsage)
     exit(64)
 }
@@ -101,13 +100,13 @@ if !FileManager.default.fileExists(atPath: bundlePath) {
 
 let bundleURL = URL(fileURLWithPath: bundlePath)
 
-guard let cpuCount = Int(opts["--cpu-count", default: "3"]), cpuCount > 0 else {
+guard let cpuCount = Int(opts.removeValue(forKey: "--cpu-count") ?? "3"), cpuCount > 0 else {
     logStderr(level: .error, "Invalid --cpu-count.")
     logStderr(level: .default, kUsage)
     exit(64)
 }
 
-guard let memoryMb = Int(opts["--memory-mb", default: "7168"]), memoryMb > 0 else {
+guard let memoryMb = Int(opts.removeValue(forKey: "--memory-mb") ?? "7168"), memoryMb > 0 else {
     logStderr(level: .error, "Invalid --memory-mb.")
     logStderr(level: .default, kUsage)
     exit(64)
@@ -115,20 +114,30 @@ guard let memoryMb = Int(opts["--memory-mb", default: "7168"]), memoryMb > 0 els
 
 let memorySize = memoryMb * 1024 * 1024
 
-guard let width = Int(opts["--width", default: "1024"]), width > 0 else {
+guard let width = Int(opts.removeValue(forKey: "--width") ?? "1024"), width > 0 else {
     logStderr(level: .error, "Invalid --width.")
     logStderr(level: .default, kUsage)
     exit(64)
 }
 
-guard let height = Int(opts["--height", default: "768"]), height > 0 else {
+guard let height = Int(opts.removeValue(forKey: "--height") ?? "768"), height > 0 else {
     logStderr(level: .error, "Invalid --height.")
     logStderr(level: .default, kUsage)
     exit(64)
 }
 
-guard let dpi = Int(opts["--dpi", default: "72"]), dpi > 0 else {
+guard let dpi = Int(opts.removeValue(forKey: "--dpi") ?? "72"), dpi > 0 else {
     logStderr(level: .error, "Invalid --dpi.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+if !opts.isEmpty {
+    logStderr(level: .error, "Unrecognized options found.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+} else if !posArgs.isEmpty {
+    logStderr(level: .error, "No positional argument is permitted.")
     logStderr(level: .default, kUsage)
     exit(64)
 }
@@ -152,8 +161,29 @@ struct MiniboxBundle {
 }
 
 enum LoadVMConfigError: Error {
+    case hardwareModelDataLoadError(error: any Error)
     case hardwareModelLoadError
+    case machineIdentifierDataLoadError(error: any Error)
     case machineIdentifierLoadError
+    case storageDeviceInitError(error: any Error)
+    case validateError(error: any Error)
+}
+
+extension LoadVMConfigError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .hardwareModelDataLoadError(let error):
+            "Failed to load hardware model data: \(error.localizedDescription)"
+        case .hardwareModelLoadError: "Failed to load hardware model."
+        case .machineIdentifierDataLoadError(let error):
+            "Failed to load machine identifier data: \(error.localizedDescription)"
+        case .machineIdentifierLoadError: "Failed to load machine identifier."
+        case .storageDeviceInitError(let error):
+            "Failed to initialize storage device: \(error.localizedDescription)"
+        case .validateError(let error):
+            "Failed to validate VM configuration: \(error.localizedDescription)"
+        }
+    }
 }
 
 func loadVMConfig(
@@ -165,7 +195,7 @@ func loadVMConfig(
     height: Int,
     dpi: Int,
 )
-    throws -> VZVirtualMachineConfiguration
+    throws(LoadVMConfigError) -> VZVirtualMachineConfiguration
 {
     let hardwareModelURL = miniboxBundle.hardwareModelURL
     let machineIdentifierURL = miniboxBundle.machineIdentifierURL
@@ -174,17 +204,26 @@ func loadVMConfig(
 
     let platform = VZMacPlatformConfiguration()
 
-    guard
-        let hardwareModel = VZMacHardwareModel(
-            dataRepresentation: try Data(contentsOf: hardwareModelURL))
-    else {
+    let hardwareModelData: Data
+    do {
+        hardwareModelData = try Data(contentsOf: hardwareModelURL)
+    } catch {
+        throw LoadVMConfigError.hardwareModelDataLoadError(error: error)
+    }
+
+    guard let hardwareModel = VZMacHardwareModel(dataRepresentation: hardwareModelData) else {
         throw LoadVMConfigError.hardwareModelLoadError
     }
     platform.hardwareModel = hardwareModel
 
-    guard
-        let machineIdentifier = VZMacMachineIdentifier(
-            dataRepresentation: try Data(contentsOf: machineIdentifierURL))
+    let machineIdentifierData: Data
+    do {
+        machineIdentifierData = try Data(contentsOf: machineIdentifierURL)
+    } catch {
+        throw LoadVMConfigError.machineIdentifierDataLoadError(error: error)
+    }
+
+    guard let machineIdentifier = VZMacMachineIdentifier(dataRepresentation: machineIdentifierData)
     else {
         throw LoadVMConfigError.machineIdentifierLoadError
     }
@@ -211,10 +250,14 @@ func loadVMConfig(
     networkConfig.macAddress = macAddress
     config.networkDevices = [networkConfig]
 
-    config.storageDevices = try storageURLs.map {
-        VZVirtioBlockDeviceConfiguration(
-            attachment: try VZDiskImageStorageDeviceAttachment(url: $0, readOnly: false)
-        )
+    do {
+        config.storageDevices = try storageURLs.map {
+            VZVirtioBlockDeviceConfiguration(
+                attachment: try VZDiskImageStorageDeviceAttachment(url: $0, readOnly: false)
+            )
+        }
+    } catch {
+        throw LoadVMConfigError.storageDeviceInitError(error: error)
     }
 
     config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
@@ -238,7 +281,11 @@ func loadVMConfig(
 
     config.pointingDevices = [VZMacTrackpadConfiguration()]
 
-    try config.validate()
+    do {
+        try config.validate()
+    } catch {
+        throw LoadVMConfigError.validateError(error: error)
+    }
 
     return config
 }
@@ -307,8 +354,19 @@ do {
 }
 
 let vm = VZVirtualMachine(configuration: config)
+
 let vmDelegate = MiniboxViewVMDelegate()
 vm.delegate = vmDelegate
+
+if let consoleDevice = vm.consoleDevices[0] as? VZVirtioConsoleDevice,
+    let consolePort = consoleDevice.ports[0]
+{
+    consolePort.attachment = VZFileHandleSerialPortAttachment(
+        fileHandleForReading: FileHandle.standardInput,
+        fileHandleForWriting: FileHandle.standardOutput,
+    )
+}
+
 vm.start { result in
     if case .failure(let error) = result {
         logStderr(level: .error, error.localizedDescription)
@@ -319,13 +377,14 @@ vm.start { result in
     }
 }
 
-class MinboxViewWindow: NSWindow, NSWindowDelegate {
+class MiniboxViewWindow: NSWindow, NSWindowDelegate {
     private let app: NSApplication
+    private let vm: VZVirtualMachine
     private let vmView: VZVirtualMachineView
 
     init(app: NSApplication, vm: VZVirtualMachine, contentRect: NSRect) {
         self.app = app
-
+        self.vm = vm
         let vmView = VZVirtualMachineView()
         vmView.virtualMachine = vm
         self.vmView = vmView
@@ -342,10 +401,6 @@ class MinboxViewWindow: NSWindow, NSWindowDelegate {
         title = "MiniboxView"
 
         makeFirstResponder(vmView)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -369,12 +424,12 @@ class MinboxViewWindow: NSWindow, NSWindowDelegate {
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    let app: NSApplication
-    let vm: VZVirtualMachine
-    let width: Int
-    let height: Int
+    private let app: NSApplication
+    private let vm: VZVirtualMachine
+    private let width: Int
+    private let height: Int
 
-    var window: NSWindow?
+    private var window: NSWindow?
 
     init(app: NSApplication, vm: VZVirtualMachine, width: Int, height: Int) {
         self.app = app
@@ -384,7 +439,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let window = MinboxViewWindow(
+        let window = MiniboxViewWindow(
             app: app,
             vm: vm,
             contentRect: NSRect(x: 0, y: 0, width: width, height: height)
@@ -396,18 +451,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-if let consoleDevice = vm.consoleDevices[0] as? VZVirtioConsoleDevice,
-    let consolePort = consoleDevice.ports[0]
-{
-    consolePort.attachment = VZFileHandleSerialPortAttachment(
-        fileHandleForReading: FileHandle.standardInput,
-        fileHandleForWriting: FileHandle.standardOutput,
-    )
-}
-
 let app = NSApplication.shared
-let appDelegate = AppDelegate(app: app, vm: vm, width: width, height: height)
-app.setActivationPolicy(.regular)
-app.delegate = appDelegate
 vmDelegate.app = app
+
+let appDelegate = AppDelegate(app: app, vm: vm, width: width, height: height)
+app.delegate = appDelegate
+
+app.setActivationPolicy(.regular)
 app.run()

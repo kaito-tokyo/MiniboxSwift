@@ -13,7 +13,6 @@ usage() {
 	printf 'Usage: minibox-prepare-github --base-image-name=NAME --variant=NAME\n'
 	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
 	printf '  --variant=NAME          Variant name for preparation process. Mandatory.\n'
-	printf '  --agentic-advice        Enable agentic advice for setup using Ollama.\n'
 	printf '  --no-sudo               Do not use sudo for operations. Optional.\n'
 	printf '  --force                 Force to overwrite existing files.\n'
 	printf '  --step=NAME	          Step name to execute. Internal use only.\n'
@@ -107,7 +106,7 @@ minibox-prepare-github-sudomodify() {
 </plist>
 EOF
 	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
-	
+
 	cat <<'EOF' >Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-console.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -143,13 +142,8 @@ minibox-prepare-github-eject() {
 }
 
 minibox-prepare-github-manualsetup() {
-	if ((${+opts[--agentic-advice]})); then
-		printf '#==> Starting manual setup with agentic assistance powered by Ollama...\n'
-		minibox-view --bundle-path "${destBaseImagePath}" --agentic-advice
-	else
-		printf '#==> Starting manual setup...\n'
-		minibox-view --bundle-path "${destBaseImagePath}"
-	fi
+	printf '#==> Starting manual setup...\n'
+	minibox-view --bundle-path "${destBaseImagePath}"
 }
 
 "minibox-prepare-github-${opts[--step]-all}" "${(kv)opts[@]}"
