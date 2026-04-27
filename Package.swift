@@ -24,12 +24,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
-        .executableTarget(
-            name: "MiniboxView",
-            dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ]
-        ),
+        .executableTarget(name: "MiniboxView"),
         .executableTarget(name: "MiniboxRun"),
         .testTarget(name: "MiniboxTests"),
     ],

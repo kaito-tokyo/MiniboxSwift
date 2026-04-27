@@ -92,8 +92,6 @@ minibox-prepare-github-sudomodify() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>KeepAlive</key>
-	<false/>
 	<key>Label</key>
 	<string>tokyo.kaito.MiniboxSwift.minibox-init</string>
 	<key>ProgramArguments</key>
@@ -103,10 +101,34 @@ minibox-prepare-github-sudomodify() {
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
+	<key>KeepAlive</key>
+	<false/>
 </dict>
 </plist>
 EOF
 	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+	
+	cat <<'EOF' >Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-console.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>tokyo.kaito.MiniboxSwift.minibox-console</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/libexec/getty</string>
+		<string>std.9600</string>
+		<string>tty.virtio</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<false/>
+</dict>
+</plist>
+EOF
+	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-console.plist
 
 	mkdir -p usr/local/libexec
 	cat <<'EOF' >usr/local/libexec/minibox-init.sh

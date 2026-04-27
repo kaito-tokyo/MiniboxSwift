@@ -2,16 +2,36 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// minibox-view: Starts a new VM with a image bundle to view its contents.
+//
+// Sources/MiniboxView/main.swift
+// MiniboxSwift
+//
+// Version: 0.1.0
+// Date: 2026-04-27
+//
 
 import AppKit
-import ArgumentParser
 import Foundation
 import Virtualization
 import Vision
 import os
 
-private func logStderr(level: OSLogType, _ message: String) {
+private let kVersion = "0.1.0"
+
+private let kUsage = """
+    minibox-view: Starts a new VM with a image bundle to view its contents.
+    Usage: minibox view --bundle-path=PATH
+      --bundle-path=PATH  Path to the image bundle. Mandatory.
+      --cpu-count=3       vCPU count. Optional.
+      --memory-mb=7168    Memory size in megabytes. Optional.
+      --width=1024        Width pixels of the vm. Optional.
+      --height=768        Height pixels of the vm. Optional.
+      --dpi=72            DPI value of the vm. Optional.
+    """
+
+private func logStderr(
+    level: OSLogType, _ message: String, fileHandle: FileHandle = FileHandle.standardError
+) {
     let logMessage =
         switch level {
         case .debug: "DEBUG: \(message)\n"
@@ -21,44 +41,152 @@ private func logStderr(level: OSLogType, _ message: String) {
         case .info: "INFO: \(message)\n"
         default: "UNKNOWN: \(message)\n"
         }
-    try? FileHandle.standardError.write(contentsOf: Data(logMessage.utf8))
+    try? fileHandle.write(contentsOf: Data(logMessage.utf8))
 }
 
-enum MiniboxViewError: Error {
+private func parseArgs(_ args: ArraySlice<String>) -> ([String: String], [String]) {
+    var opts: [String: String] = [:]
+    var posArgs: [String] = []
+    var tail = args
+
+    while let arg = tail.popFirst() {
+        if arg == "--" {
+            posArgs.append(contentsOf: tail)
+            break
+        } else if let match = arg.wholeMatch(of: /(--[^=]+)=(.*)/) {
+            opts[String(match.output.1)] = String(match.output.2)
+        } else if arg.hasPrefix("--") {
+            if let optarg = tail.first, !optarg.hasPrefix("--") {
+                opts[arg] = optarg
+                _ = tail.popFirst()
+            } else {
+                opts[arg] = "true"
+            }
+        } else {
+            posArgs.append(arg)
+        }
+    }
+
+    return (opts, posArgs)
+}
+
+let (opts, _) = parseArgs(CommandLine.arguments.dropFirst())
+
+if opts["--help"] == "true" {
+    logStderr(level: .default, kUsage)
+    exit(64)
+} else if opts["--version"] == "true" {
+    print("miniboxViewVersion=\(kVersion)")
+    exit(64)
+}
+
+logStderr(level: .info, "minibox-view v\(kVersion)")
+print(
+    "event:startUp",
+    "version:\(kVersion)",
+    separator: "\t"
+)
+
+guard let bundlePath = opts["--bundle-path"] else {
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+if !FileManager.default.fileExists(atPath: bundlePath) {
+    logStderr(level: .default, "--bundle-path does not exist: \(bundlePath)")
+    logStderr(level: .default, kUsage)
+    print("error:BundlePathNotExistError")
+    exit(1)
+}
+
+let bundleURL = URL(fileURLWithPath: bundlePath)
+
+guard let cpuCount = Int(opts["--cpu-count", default: "3"]), cpuCount > 0 else {
+    logStderr(level: .error, "Invalid --cpu-count.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+guard let memoryMb = Int(opts["--memory-mb", default: "7168"]), memoryMb > 0 else {
+    logStderr(level: .error, "Invalid --memory-mb.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+let memorySize = memoryMb * 1024 * 1024
+
+guard let width = Int(opts["--width", default: "1024"]), width > 0 else {
+    logStderr(level: .error, "Invalid --width.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+guard let height = Int(opts["--height", default: "768"]), height > 0 else {
+    logStderr(level: .error, "Invalid --height.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+guard let dpi = Int(opts["--dpi", default: "72"]), dpi > 0 else {
+    logStderr(level: .error, "Invalid --dpi.")
+    logStderr(level: .default, kUsage)
+    exit(64)
+}
+
+print(
+    "event:argumentsParsed",
+    "bundleURL:\(bundleURL.absoluteString)",
+    "cpuCount:\(cpuCount)",
+    "memorySize:\(memorySize)",
+    "width:\(width)",
+    "height:\(height)",
+    "dpi:\(dpi)",
+    separator: "\t",
+)
+
+struct MiniboxBundle {
+    let hardwareModelURL: URL
+    let machineIdentifierURL: URL
+    let auxiliaryStorageURL: URL
+    let storageURLs: [URL]
+}
+
+enum LoadVMConfigError: Error {
     case hardwareModelLoadError
-    case machineIndentifierLoadError
-    case ocrFailedError
-    case ollamaResponseNotOKError
+    case machineIdentifierLoadError
 }
 
 func loadVMConfig(
-    hardwareModelURL: URL,
-    machineIdentifierURL: URL,
-    auxiliaryStorageURL: URL,
-    storageURLs: [URL],
+    miniboxBundle: MiniboxBundle,
     macAddress: VZMACAddress,
     cpuCount: Int,
     memorySize: Int,
     width: Int,
     height: Int,
+    dpi: Int,
 )
     throws -> VZVirtualMachineConfiguration
 {
+    let hardwareModelURL = miniboxBundle.hardwareModelURL
+    let machineIdentifierURL = miniboxBundle.machineIdentifierURL
+    let auxiliaryStorageURL = miniboxBundle.auxiliaryStorageURL
+    let storageURLs = miniboxBundle.storageURLs
+
     let platform = VZMacPlatformConfiguration()
 
     guard
-        let hardwareModelData = try? Data(contentsOf: hardwareModelURL),
-        let hardwareModel = VZMacHardwareModel(dataRepresentation: hardwareModelData)
+        let hardwareModel = VZMacHardwareModel(
+            dataRepresentation: try Data(contentsOf: hardwareModelURL))
     else {
-        throw MiniboxViewError.hardwareModelLoadError
+        throw LoadVMConfigError.hardwareModelLoadError
     }
     platform.hardwareModel = hardwareModel
 
     guard
-        let machinesIdentifierData = try? Data(contentsOf: machineIdentifierURL),
-        let machineIdentifier = VZMacMachineIdentifier(dataRepresentation: machinesIdentifierData)
+        let machineIdentifier = VZMacMachineIdentifier(
+            dataRepresentation: try Data(contentsOf: machineIdentifierURL))
     else {
-        throw MiniboxViewError.machineIndentifierLoadError
+        throw LoadVMConfigError.machineIdentifierLoadError
     }
     platform.machineIdentifier = machineIdentifier
 
@@ -70,6 +198,13 @@ func loadVMConfig(
     config.memorySize = UInt64(memorySize)
     config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
     config.platform = platform
+
+    let consoleConfig = VZVirtioConsoleDeviceConfiguration()
+    let consolePort = VZVirtioConsolePortConfiguration()
+    consolePort.isConsole = true
+    consolePort.name = "virtio"
+    consoleConfig.ports[0] = consolePort
+    config.consoleDevices = [consoleConfig]
 
     let networkConfig = VZVirtioNetworkDeviceConfiguration()
     networkConfig.attachment = VZNATNetworkDeviceAttachment()
@@ -89,14 +224,12 @@ func loadVMConfig(
     audioConfig.streams = [audioOutputConfig]
     config.audioDevices = [audioConfig]
 
-    config.directorySharingDevices = []
-
     let graphicsConfig = VZMacGraphicsDeviceConfiguration()
     graphicsConfig.displays = [
         VZMacGraphicsDisplayConfiguration(
             widthInPixels: width,
             heightInPixels: height,
-            pixelsPerInch: 72
+            pixelsPerInch: dpi,
         )
     ]
     config.graphicsDevices = [graphicsConfig]
@@ -110,76 +243,27 @@ func loadVMConfig(
     return config
 }
 
-struct MiniboxView: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "minibox view",
-        abstract: "Starts a new VM with a image bundle to view its contents."
-    )
+class MiniboxViewVMDelegate: NSObject, VZVirtualMachineDelegate {
+    var app: NSApplication?
 
-    @Option(help: "Path to the image bundle.")
-    var bundlePath: String
-
-    @Option(help: "CPU count.")
-    var cpuCount = 3
-
-    @Option(help: "Memory size in bytes.")
-    var memorySize = 7 * 1024 * 1024 * 1024
-
-    @Option(help: "Number of width pixels.")
-    var width = 1024
-
-    @Option(help: "Number of height pixels.")
-    var height = 768
-
-    @Flag(help: "Enable agentic advice using Ollama.")
-    var agenticAdvice = false
-
-    var fileManager: FileManager { .default }
-
-    func validate() throws {
-        if !fileManager.fileExists(atPath: bundlePath) {
-            throw ValidationError("Bundle path does not exist: \(bundlePath)!")
-        }
-    }
-}
-
-let options: MiniboxView
-do {
-    options = try MiniboxView.parse()
-} catch {
-    logStderr(level: .error, error.localizedDescription)
-    logStderr(level: .default, MiniboxView.helpMessage())
-    exit(64)
-}
-
-let bundleURL = URL(filePath: options.bundlePath)
-
-let macAddress = VZMACAddress.randomLocallyAdministered()
-
-let config = try loadVMConfig(
-    hardwareModelURL: bundleURL.appending(path: "HardwareModel"),
-    machineIdentifierURL: bundleURL.appending(path: "MachineIdentifier"),
-    auxiliaryStorageURL: bundleURL.appending(path: "AuxiliaryStorage"),
-    storageURLs: [bundleURL.appending(path: "Disk.asif")],
-    macAddress: macAddress,
-    cpuCount: options.cpuCount,
-    memorySize: options.memorySize,
-    width: options.width,
-    height: options.height
-)
-
-let vm = VZVirtualMachine(configuration: config)
-
-class VMDelegate: NSObject, VZVirtualMachineDelegate {
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-        DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
+        if let app {
+            DispatchQueue.main.async {
+                app.terminate(nil)
+            }
+        }
     }
 
     func virtualMachine(
         _ virtualMachine: VZVirtualMachine,
         didStopWithError error: any Error
     ) {
-        DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
+        if let app {
+            DispatchQueue.main.async {
+                app.presentError(error)
+                app.terminate(nil)
+            }
+        }
     }
 
     func virtualMachine(
@@ -187,14 +271,44 @@ class VMDelegate: NSObject, VZVirtualMachineDelegate {
         networkDevice: VZNetworkDevice,
         attachmentWasDisconnectedWithError error: any Error
     ) {
-        DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
+
+        if let app {
+            DispatchQueue.main.async {
+                app.presentError(error)
+                app.terminate(nil)
+            }
+        }
     }
 }
 
-let vmDelegate = VMDelegate()
+let miniboxBundle = MiniboxBundle(
+    hardwareModelURL: bundleURL.appending(path: "HardwareModel"),
+    machineIdentifierURL: bundleURL.appending(path: "MachineIdentifier"),
+    auxiliaryStorageURL: bundleURL.appending(path: "AuxiliaryStorage"),
+    storageURLs: [bundleURL.appending(path: "Disk.asif")],
+)
 
+let macAddress = VZMACAddress.randomLocallyAdministered()
+
+let config: VZVirtualMachineConfiguration
+do {
+    config = try loadVMConfig(
+        miniboxBundle: miniboxBundle,
+        macAddress: macAddress,
+        cpuCount: cpuCount,
+        memorySize: memorySize,
+        width: width,
+        height: height,
+        dpi: dpi,
+    )
+} catch {
+    logStderr(level: .error, error.localizedDescription)
+    exit(1)
+}
+
+let vm = VZVirtualMachine(configuration: config)
+let vmDelegate = MiniboxViewVMDelegate()
 vm.delegate = vmDelegate
-
 vm.start { result in
     if case .failure(let error) = result {
         logStderr(level: .error, error.localizedDescription)
@@ -205,253 +319,95 @@ vm.start { result in
     }
 }
 
-func performOCR(on cgImage: CGImage) async throws -> [String] {
-    return try await withCheckedThrowingContinuation { continuation in
-        let request = VNRecognizeTextRequest { request, error in
-            guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                continuation.resume(throwing: error ?? MiniboxViewError.ocrFailedError)
-                return
+class MinboxViewWindow: NSWindow, NSWindowDelegate {
+    private let app: NSApplication
+    private let vmView: VZVirtualMachineView
+
+    init(app: NSApplication, vm: VZVirtualMachine, contentRect: NSRect) {
+        self.app = app
+
+        let vmView = VZVirtualMachineView()
+        vmView.virtualMachine = vm
+        self.vmView = vmView
+
+        super.init(
+            contentRect: contentRect,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        contentView = vmView
+        delegate = self
+        title = "MiniboxView"
+
+        makeFirstResponder(vmView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if vm.canStop {
+            vm.stop { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        logStderr(level: .error, error.localizedDescription)
+                        self.app.presentError(error)
+                    }
+                    print("event:vmStop")
+                    self.app.terminate(nil)
+                }
             }
-
-            var recognizedTexts: [String] = []
-
-            for observation in observations {
-                guard let candidate = observation.topCandidates(1).first else { continue }
-                let bb = observation.boundingBox
-                let centerX = (bb.origin.x + bb.size.width / 2.0)
-                let centerY = 1.0 - (bb.origin.y + bb.size.height / 2.0)
-                recognizedTexts.append(
-                    "[\(Int(centerX * 100.0)) \(Int(centerY * 100.0))] \(candidate.string)")
-            }
-
-            continuation.resume(returning: recognizedTexts)
-        }
-
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["en-US"]
-        request.automaticallyDetectsLanguage = false
-        request.usesLanguageCorrection = true
-        request.customWords = []
-        request.minimumTextHeight = 0.02
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-
-        do {
-            try handler.perform([request])
-        } catch {
-            continuation.resume(throwing: error)
+        } else {
+            print("event:forceExit")
+            app.terminate(nil)
         }
     }
-}
-
-struct OllamaRequest: Codable {
-    let model: String
-    let messages: [Message]
-    let stream: Bool
-
-    struct Message: Codable {
-        let role: String
-        let content: String
-        let images: [String]?
-    }
-}
-
-struct OllamaResponse: Codable {
-    let message: Message
-    struct Message: Codable {
-        let content: String
-    }
-}
-
-func agenticChat(with ollamaRequest: OllamaRequest, ollamaBaseURL: URL) async throws
-    -> OllamaResponse
-{
-    let url = ollamaBaseURL.appendingPathComponent("api/chat")
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONEncoder().encode(ollamaRequest)
-
-    let (data, response) = try await URLSession.shared.data(for: request)
-
-    guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-        throw MiniboxViewError.ollamaResponseNotOKError
-    }
-
-    return try JSONDecoder().decode(OllamaResponse.self, from: data)
 }
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+    let app: NSApplication
     let vm: VZVirtualMachine
     let width: Int
     let height: Int
-    let ollamaBaseURL: URL?
 
-    var systemPrompt: String?
-
-    var recognizeTimer: Timer?
     var window: NSWindow?
-    var vmView: VZVirtualMachineView?
 
-    var spinner: NSProgressIndicator?
-    var instructionLabel: NSTextField?
-    var askButton: NSButton?
-
-    init(vm: VZVirtualMachine, width: Int, height: Int, ollamaBaseURL: URL?) {
+    init(app: NSApplication, vm: VZVirtualMachine, width: Int, height: Int) {
+        self.app = app
         self.vm = vm
         self.width = width
         self.height = height
-        self.ollamaBaseURL = ollamaBaseURL
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        window.center()
-        window.title = "MiniboxView"
-
-        let vmView = VZVirtualMachineView()
-        vmView.virtualMachine = vm
-
-        let spinner = NSProgressIndicator()
-        spinner.style = .spinning
-        spinner.isDisplayedWhenStopped = false
-
-        let instructionLabel = NSTextField(labelWithString: "")
-        instructionLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        instructionLabel.textColor = .secondaryLabelColor
-        instructionLabel.lineBreakMode = .byWordWrapping
-        instructionLabel.isSelectable = true
-
-        let adviceStackViewSpacer = NSView()
-        adviceStackViewSpacer.translatesAutoresizingMaskIntoConstraints = false
-
-        let askButton = NSButton(
-            title: "Ask LLM for Advice", target: self, action: #selector(navigateTask))
-
-        let adviceStackView = NSStackView(views: [
-            spinner, instructionLabel, adviceStackViewSpacer, askButton,
-        ])
-        adviceStackView.orientation = .horizontal
-        adviceStackView.distribution = .fill
-
-        let stackView = NSStackView(views: [vmView, adviceStackView])
-        stackView.orientation = .vertical
-        stackView.spacing = 10
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 10, right: 10)
-        stackView.alignment = .leading
-
-        window.contentView = stackView
+        let window = MinboxViewWindow(
+            app: app,
+            vm: vm,
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height)
+        )
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(vmView)
-
-        vmView.setContentHuggingPriority(.defaultLow, for: .vertical)
-        instructionLabel.setContentHuggingPriority(.required, for: .vertical)
-
-        NSApplication.shared.activate(ignoringOtherApps: true)
-
+        window.center()
+        app.activate(ignoringOtherApps: true)
         self.window = window
-        self.vmView = vmView
-        self.spinner = spinner
-        self.instructionLabel = instructionLabel
-        self.askButton = askButton
-    }
-
-    @objc func navigateTask() {
-        Task { @MainActor in
-            guard let vmView else { return }
-
-            let bounds = vmView.bounds
-            guard let bitmapRep = vmView.bitmapImageRepForCachingDisplay(in: bounds) else {
-                return
-            }
-
-            vmView.cacheDisplay(in: bounds, to: bitmapRep)
-
-            if let cgImage = bitmapRep.cgImage, let ollamaBaseURL, let systemPrompt {
-                let recognizedTexts = try await performOCR(on: cgImage)
-
-                var message = "Can you advice me on how to proceed the setup of macOS?\n\n"
-                message += """
-                    ## OCR Data (Format: [x y] Text, Coordinate: Top Left [0, 0], Bottom Right [100, 100])
-                    """
-                message += "\n\n"
-                if recognizedTexts.count == 0 {
-                    message += "EMPTY: No text detected.\n"
-                } else {
-                    for recognizedText in recognizedTexts {
-                        message += "- \(recognizedText)\n"
-                    }
-                }
-                message += """
-                    ## Instruction
-                    Determine the current phase and provide the next step.
-                    Use the format: [TAG] Action description.
-                    """
-
-                let imageDataURLs: [String]?
-                if let data = bitmapRep.representation(using: .jpeg, properties: [:]) {
-                    imageDataURLs = [data.base64EncodedString()]
-                } else {
-                    imageDataURLs = nil
-                }
-
-                let ollamaRequest = OllamaRequest(
-                    model: "gemma3:4b-it-q8_0",
-                    messages: [
-                        .init(role: "system", content: systemPrompt, images: nil),
-                        .init(role: "user", content: message, images: imageDataURLs),
-                    ],
-                    stream: false
-                )
-                do {
-                    spinner?.startAnimation(nil)
-                    let advice = try await agenticChat(
-                        with: ollamaRequest, ollamaBaseURL: ollamaBaseURL)
-                    instructionLabel?.stringValue = advice.message.content
-                    spinner?.stopAnimation(nil)
-                } catch {
-                    logStderr(level: .error, error.localizedDescription)
-                }
-            }
-        }
     }
 }
 
-let ollamaBaseURL: URL?
-if options.agenticAdvice {
-    if let string = ProcessInfo.processInfo.environment["OLLAMA_BASE_URL"] {
-        ollamaBaseURL = URL(string: string)
-    } else {
-        ollamaBaseURL = URL(string: "http://localhost:11434")
-    }
-} else {
-    ollamaBaseURL = nil
+if let consoleDevice = vm.consoleDevices[0] as? VZVirtioConsoleDevice,
+    let consolePort = consoleDevice.ports[0]
+{
+    consolePort.attachment = VZFileHandleSerialPortAttachment(
+        fileHandleForReading: FileHandle.standardInput,
+        fileHandleForWriting: FileHandle.standardOutput,
+    )
 }
 
-NSApplication.shared.setActivationPolicy(.regular)
-let delegate = AppDelegate(
-    vm: vm, width: options.width, height: options.height, ollamaBaseURL: ollamaBaseURL)
-if options.agenticAdvice {
-    delegate.systemPrompt = """
-        The goal of user is to complete macOS installation process.
-        Please provide a short text to instruct what user should do next.
-
-        ## Installation sequence
-        1. Blank screen
-        2. Welcome screen
-        3. Select your region
-        4. Transfer Your Data to This Mac
-        5. Written and Spoken Languages
-        6. Accessibility
-
-        ## Rules
-        - Language MUST be English.
-        - Let user to select region.
-        """
-}
-NSApplication.shared.delegate = delegate
-NSApplication.shared.run()
+let app = NSApplication.shared
+let appDelegate = AppDelegate(app: app, vm: vm, width: width, height: height)
+app.setActivationPolicy(.regular)
+app.delegate = appDelegate
+vmDelegate.app = app
+app.run()
