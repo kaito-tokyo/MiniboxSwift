@@ -1,31 +1,40 @@
-#!/bin/dash
+#!/bin/zsh
 
 # SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
 #
 # SPDX-License-Identifier: Apache-2.0
 
-set -eu
+setopt errexit nounset nullglob pipefail warn_create_global
 
-usage() {
-	printf 'Usage: minibox ls [BaseImages]\n'
-}
-
+MINIBOX_VERSION="0.1.0"
 : "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
 
-MINIBOX_BASE_IMAGE_DIR="${MINIBOX_DATA_DIR}/BaseImages"
+usage() {
+	printf 'minibox-ls: Lists the images available in the Minibox data directory.\n'
+	printf 'Usage: minibox-ls [all|base-images]\n'
+	printf '  all  Lists all the images in human-readable format.\n'
+}
 
-if [ "$#" -eq 0 ]; then
-	printf '%s:\n' "${MINIBOX_BASE_IMAGE_DIR}"
-	ls "${MINIBOX_BASE_IMAGE_DIR}"
-else
-	case "$1" in
-	BaseImages)
-		ls "${MINIBOX_BASE_IMAGE_DIR}"
-		;;
-	*)
-		printf 'Unknown argument: %s\n' "$1" >&2
-		usage >&2
-		exit 64
-		;;
-	esac
+minibox-ls-all() {
+	local bundlePath baseImageName
+	for bundlePath in "${MINIBOX_DATA_DIR}/BaseImages"/*.miniboxvm(N/); do
+		baseImageName="${bundlePath:t:r}"
+		printf 'BaseImage=%s\n' "${baseImageName}"
+		printf '  # To run this miniboxvm bundle with GUI:\n'
+		printf '  minibox view --bundle-path=%q\n' "${bundlePath}"
+		printf '\n'
+		printf '  # To prepare this base image for GitHub:\n'
+		printf '  minibox prepare --base-image-name=%q --variant=github\n' "${baseImageName}"
+		printf '\n'
+	done
+}
+
+subcommand="minibox-ls-${1:-all}"
+
+if ! whence "${subcommand}" >/dev/null 2>&1; then
+	printf 'ERROR: Unsupported subcommand: %s\n' "$1" >&2
+	usage >&2
+	exit 64
 fi
+
+"${subcommand}" "${@:2}"

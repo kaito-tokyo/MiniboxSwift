@@ -10,35 +10,55 @@ setopt errexit nounset nullglob pipefail warn_create_global
 export MINIBOX_DATA_DIR
 
 usage() {
-	printf 'Usage: minibox-prepare-github --base-image-name=NAME --variant=NAME\n'
+	printf 'Usage: minibox-prepare-github --base-image-name=NAME\n'
 	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
-	printf '  --variant=NAME          Variant name for preparation process. Mandatory.\n'
 	printf '  --no-sudo               Do not use sudo for operations. Optional.\n'
 	printf '  --force                 Force to overwrite existing files.\n'
+	printf '  --skip-steps=S1,S2      Comma-separated list of step names to skip. Optional.\n'
 	printf '  --step=NAME	          Step name to execute. Internal use only.\n'
 }
 
 typeset -A opts
+typeset -a posArgs
 while (($#)); do
-	case $1 in
-	--) break ;;
-	--*=*) opts[${1%%=*}]=${1#*=}; shift ;;
-	--*) opts[$1]=${${2-}##--*}; shift ${${opts[$1]:+2}:-1} ;;
-	*) shift ;;
-	esac
+	if [[ $1 == -- ]]; then
+		posArgs+=("${@:2}")
+		set --
+		break
+	elif [[ $1 == --?*=* ]]; then
+		opts[${1%%=*}]="${1#*=}"
+	elif [[ $1 == --?* ]]; then
+		if [[ ${2:---} == --* ]]; then
+			opts[$1]=''
+		else
+			opts[$1]="$2"
+			shift
+		fi
+	else
+		posArgs+=("$1")
+	fi
+	shift
 done
 
-if [[ -z ${opts[--base-image-name]-} ]]; then
-	printf 'ERROR: --base-image-name is required.\n' >&2
-	usage >&2
-	exit 64
-fi
+getoption() {
+	if ((${+opts[$1]})); then
+		printf '%s' "${opts[$1]}"
+	elif [[ ${2:-} == required ]]; then
+		printf 'ERROR: %s is required.\n' "$1" >&2
+		usage >&2
+		exit 64
+	fi
+}
 
-srcBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}.miniboxvm"
-destBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${opts[--base-image-name]}_${opts[--variant]}.miniboxvm"
-volumePath="${MINIBOX_DATA_DIR}/Volumes/${opts[--base-image-name]}_${opts[--variant]}"
+baseImageName=$(getoption --base-image-name required)
+noSudo=$(getoption --no-sudo)
+skipSteps=$(getoption --skip-steps)
+
+srcBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${baseImageName}.miniboxvm"
+destBaseImagePath="${MINIBOX_DATA_DIR}/BaseImages/${baseImageName}_github.miniboxvm"
+volumePath="${MINIBOX_DATA_DIR}/Volumes/${baseImageName}_github"
 scriptPath="$0"
-if ((${+opts[--no-sudo]})); then
+if ((${+noSudo})); then
 	sudo=:
 else
 	sudo=sudo
@@ -60,6 +80,7 @@ minibox-prepare-github-clone() {
 			rm -rf "${destBaseImagePath}"
 		else
 			printf 'ERROR: Base image already exists: %s\n' "${destBaseImagePath}" >&2
+			printf 'ERROR: Try again with --force to overwrite.\n' >&2
 			exit 1
 		fi
 	fi
