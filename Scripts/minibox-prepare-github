@@ -13,7 +13,6 @@ usage() {
 	printf 'Usage: minibox-prepare-github --base-image-name=NAME --variant=NAME\n'
 	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
 	printf '  --variant=NAME          Variant name for preparation process. Mandatory.\n'
-	printf '  --agentic-advice        Enable agentic advice for setup using Ollama.\n'
 	printf '  --no-sudo               Do not use sudo for operations. Optional.\n'
 	printf '  --force                 Force to overwrite existing files.\n'
 	printf '  --step=NAME	          Step name to execute. Internal use only.\n'
@@ -92,8 +91,6 @@ minibox-prepare-github-sudomodify() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>KeepAlive</key>
-	<false/>
 	<key>Label</key>
 	<string>tokyo.kaito.MiniboxSwift.minibox-init</string>
 	<key>ProgramArguments</key>
@@ -103,10 +100,34 @@ minibox-prepare-github-sudomodify() {
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
+	<key>KeepAlive</key>
+	<false/>
 </dict>
 </plist>
 EOF
 	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-init.plist
+
+	cat <<'EOF' >Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-console.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>tokyo.kaito.MiniboxSwift.minibox-console</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/libexec/getty</string>
+		<string>std.9600</string>
+		<string>tty.virtio</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<false/>
+</dict>
+</plist>
+EOF
+	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-console.plist
 
 	mkdir -p usr/local/libexec
 	cat <<'EOF' >usr/local/libexec/minibox-init.sh
@@ -121,13 +142,8 @@ minibox-prepare-github-eject() {
 }
 
 minibox-prepare-github-manualsetup() {
-	if ((${+opts[--agentic-advice]})); then
-		printf '#==> Starting manual setup with agentic assistance powered by Ollama...\n'
-		minibox-view --bundle-path "${destBaseImagePath}" --agentic-advice
-	else
-		printf '#==> Starting manual setup...\n'
-		minibox-view --bundle-path "${destBaseImagePath}"
-	fi
+	printf '#==> Starting manual setup...\n'
+	minibox-view --bundle-path "${destBaseImagePath}"
 }
 
 "minibox-prepare-github-${opts[--step]-all}" "${(kv)opts[@]}"
