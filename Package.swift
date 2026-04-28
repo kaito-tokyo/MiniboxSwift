@@ -14,16 +14,8 @@ let package = Package(
         .executable(name: "minibox-view", targets: ["MiniboxView"]),
         .executable(name: "minibox-run", targets: ["MiniboxRun"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.7.1")
-    ],
     targets: [
-        .executableTarget(
-            name: "MiniboxCreateBaseMacOS",
-            dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ]
-        ),
+        .executableTarget(name: "MiniboxCreateBaseMacOS"),
         .executableTarget(name: "MiniboxView"),
         .executableTarget(name: "MiniboxRun"),
         .testTarget(name: "MiniboxTests"),

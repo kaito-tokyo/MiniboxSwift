@@ -8,7 +8,7 @@ set -eu
 
 usage() {
 	printf 'minibox-create-base: Creates a new base image from resources.\n'
-	printf 'Usage: minibox-create-base <macos|alpine> [args...]\n'
+	printf 'Usage: minibox-create-base <macos> [args...]\n'
 }
 
 if [ "$#" -eq 0 ]; then

@@ -18,9 +18,9 @@ private let kVersion = "0.1.0"
 
 private let kUsage = """
     minibox-create-base-macos: Creates a macOS base image from IPSW.
-    Usage: minibox-create-base-macos --bundle-path=PATH
+    Usage: minibox-create-base-macos --ipsw-path=PATH
       --ipsw-path  Path to ipsw. Mandatory.
-      --force             Force to overwrite existing files.
+      --force      Force to overwrite existing files.
     """
 
 private let kDefaultMiniboxDataDir = URL.applicationSupportDirectory.appending(
@@ -97,7 +97,7 @@ guard let ipswPath = opts.removeValue(forKey: "--ipsw-path") else {
 }
 
 if !FileManager.default.fileExists(atPath: ipswPath) {
-    logStderr(level: .default, "--bundle-path does not exist: \(ipswPath)")
+    logStderr(level: .default, "--ipsw-path does not exist: \(ipswPath)")
     logStderr(level: .default, kUsage)
     print("error:IPSWPathNotExistError")
     exit(1)
@@ -105,7 +105,7 @@ if !FileManager.default.fileExists(atPath: ipswPath) {
 
 let ipswURL = URL(fileURLWithPath: ipswPath)
 
-let force = opts.removeValue(forKey: "--force") != nil
+let force = opts.removeValue(forKey: "--force") == "true"
 
 if !opts.isEmpty {
     logStderr(level: .error, "Unrecognized options found.")
@@ -123,11 +123,6 @@ print(
     "force:\(force)",
     separator: "\t",
 )
-
-enum MiniboxCreateBaseError: Error {
-    case requirementsNotAvailableError
-    case asifCreationError
-}
 
 struct MiniboxBundle {
     let hardwareModelURL: URL
@@ -173,13 +168,13 @@ private func createVMConfig(miniboxBundle: MiniboxBundle, restoreImage: VZMacOSR
     let auxiliaryStorageURL = miniboxBundle.auxiliaryStorageURL
     let storageURLs = miniboxBundle.storageURLs
 
-    guard let configRequrements = restoreImage.mostFeaturefulSupportedConfiguration else {
+    guard let configRequirements = restoreImage.mostFeaturefulSupportedConfiguration else {
         throw CreateVMConfigError.configurationRequirementsNotAvailableError
     }
 
     let platform = VZMacPlatformConfiguration()
 
-    let hardwareModel = configRequrements.hardwareModel
+    let hardwareModel = configRequirements.hardwareModel
     do {
         try hardwareModel.dataRepresentation.write(to: hardwareModelURL, options: .atomic)
     } catch {
@@ -210,8 +205,8 @@ private func createVMConfig(miniboxBundle: MiniboxBundle, restoreImage: VZMacOSR
 
     let config = VZVirtualMachineConfiguration()
     config.bootLoader = VZMacOSBootLoader()
-    config.cpuCount = configRequrements.minimumSupportedCPUCount
-    config.memorySize = configRequrements.minimumSupportedMemorySize
+    config.cpuCount = configRequirements.minimumSupportedCPUCount
+    config.memorySize = configRequirements.minimumSupportedMemorySize
     config.memoryBalloonDevices = [
         VZVirtioTraditionalMemoryBalloonDeviceConfiguration()
     ]
@@ -269,6 +264,17 @@ enum CreateBlankASIFError: Error {
     case diskutilExitWithFailureError(Int32)
 }
 
+extension CreateBlankASIFError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .diskutilProcessRunError(let error):
+            "Failed to run diskutil: \(error.localizedDescription)"
+        case .diskutilExitWithFailureError(let terminationStatus):
+            "Diskutil exited with failure: \(terminationStatus)"
+        }
+    }
+}
+
 private func createBlankASIF(url: URL) throws(CreateBlankASIFError) {
     let process = Process()
 
@@ -317,9 +323,19 @@ class InstallMacOS {
 
     func run(restoreImage: VZMacOSRestoreImage) async -> Int32 {
         return await withCheckedContinuation { continuation in
+            let didResume = OSAllocatedUnfairLock(initialState: false)
+
+            @Sendable func resume(returning value: Int32) {
+                didResume.withLock {
+                    if !$0 {
+                        continuation.resume(returning: value)
+                    }
+                }
+            }
+
             let majorVersion = restoreImage.operatingSystemVersion.majorVersion
-            let minorVersion = restoreImage.operatingSystemVersion.majorVersion
-            let patchVersion = restoreImage.operatingSystemVersion.majorVersion
+            let minorVersion = restoreImage.operatingSystemVersion.minorVersion
+            let patchVersion = restoreImage.operatingSystemVersion.patchVersion
             let buildVersion = restoreImage.buildVersion
             let baseImageName =
                 "macOS_\(majorVersion).\(minorVersion).\(patchVersion)_\(buildVersion)"
@@ -336,7 +352,7 @@ class InstallMacOS {
                         try FileManager.default.removeItem(at: baseImageURL)
                     } catch {
                         logStderr(level: .error, error.localizedDescription)
-                        continuation.resume(returning: 1)
+                        resume(returning: 1)
                         return
                     }
                 } else {
@@ -344,7 +360,7 @@ class InstallMacOS {
                         level: .error,
                         "Base image named \(baseImageName) already exists! Try with --force to overwrite. Exiting..."
                     )
-                    continuation.resume(returning: 1)
+                    resume(returning: 1)
                     return
                 }
             }
@@ -354,7 +370,8 @@ class InstallMacOS {
                     at: baseImageURL, withIntermediateDirectories: true)
             } catch {
                 logStderr(level: .error, error.localizedDescription)
-                continuation.resume(returning: 1)
+                resume(returning: 1)
+                return
             }
 
             let diskURL = baseImageURL.appendingPathComponent("Disk.asif")
@@ -362,7 +379,7 @@ class InstallMacOS {
                 try createBlankASIF(url: diskURL)
             } catch {
                 logStderr(level: .error, error.localizedDescription)
-                continuation.resume(returning: 1)
+                resume(returning: 1)
             }
 
             let miniboxBundle = MiniboxBundle(
@@ -378,7 +395,7 @@ class InstallMacOS {
                     miniboxBundle: miniboxBundle, restoreImage: restoreImage)
             } catch {
                 logStderr(level: .error, error.localizedDescription)
-                continuation.resume(returning: 1)
+                resume(returning: 1)
                 return
             }
 
@@ -403,7 +420,7 @@ class InstallMacOS {
                 logStderr(level: .info, "Stopping the installation...")
                 observation.invalidate()
                 installer.progress.cancel()
-                continuation.resume(returning: 1)
+                resume(returning: 1)
             }
 
             sigintSource.activate()
@@ -414,10 +431,12 @@ class InstallMacOS {
                 switch result {
                 case .success:
                     print("install=success")
-                    continuation.resume(returning: 0)
+                    observation.invalidate()
+                    resume(returning: 0)
                 case .failure:
                     print("install=failed")
-                    continuation.resume(returning: 1)
+                    observation.invalidate()
+                    resume(returning: 1)
                 }
             }
         }
