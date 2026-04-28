@@ -36,7 +36,7 @@ install: $(CODESIGN_STAMP) $(SCRIPT_SOURCES)
 	install -Dm755 "$(BUILT_PRODUCTS_DIR)/minibox-view" "$(PREFIX)/bin/minibox-view"
 	install -Dm755 Scripts/minibox-ls "$(PREFIX)/bin/minibox-ls"
 	install -Dm755 Scripts/minibox-prepare "$(PREFIX)/bin/minibox-prepare"
-	install -Dm755 Scripts/minibox-prepare-github "$(PREFIX)/bin/minibox-prepare-github"
+	install -Dm755 Scripts/minibox-prepare-macos "$(PREFIX)/bin/minibox-prepare-macos"
 	install -Dm755 Scripts/minibox "$(PREFIX)/bin/minibox"
 
 .PHONY: test

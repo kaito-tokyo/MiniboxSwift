@@ -4,6 +4,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# file: Scripts/minibox
+# author: Kaito Udagawa <umireon@kaito.tokyo>
+# version: 0.1.0
+# date: 2026-04-28
+
 setopt errexit nounset nullglob pipefail warn_create_global
 
 MINIBOX_VERSION="0.1.0"
@@ -11,7 +16,7 @@ MINIBOX_VERSION="0.1.0"
 
 usage() {
 	printf 'minibox-ls: Lists the images available in the Minibox data directory.\n'
-	printf 'Usage: minibox-ls [all|base-images]\n'
+	printf 'Usage: minibox-ls [all]\n'
 	printf '  all  Lists all the images in human-readable format.\n'
 }
 
@@ -20,11 +25,11 @@ minibox-ls-all() {
 	for bundlePath in "${MINIBOX_DATA_DIR}/BaseImages"/*.miniboxvm(N/); do
 		baseImageName="${bundlePath:t:r}"
 		printf 'BaseImage=%s\n' "${baseImageName}"
-		printf '  # To run this miniboxvm bundle with GUI:\n'
+		printf '  # To run this miniboxvm bundle with a graphical screen:\n'
 		printf '  minibox view --bundle-path=%q\n' "${bundlePath}"
 		printf '\n'
-		printf '  # To prepare this base image for GitHub:\n'
-		printf '  minibox prepare --base-image-name=%q --variant=github\n' "${baseImageName}"
+		printf '  # To prepare this base image for macOS:\n'
+		printf '  minibox prepare --base-image-name=%q --variant=macos\n' "${baseImageName}"
 		printf '\n'
 	done
 }
