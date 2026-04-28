@@ -4,44 +4,88 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# file: Scripts/minibox-prepare
+# author: Kaito Udagawa <umireon@kaito.tokyo>
+# version: 0.1.0
+# date: 2026-04-28
+
 setopt errexit nounset nullglob pipefail warn_create_global
 
+MINIBOX_VERSION="0.1.0"
 : "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
 export MINIBOX_DATA_DIR
 
 usage() {
-	printf 'Usage: minibox prepare --base-image-name=NAME --variant=NAME\n'
+	printf 'Usage: minibox-prepare --base-image-name=NAME --variant=NAME\n'
 	printf '  --base-image-name=NAME  Name of the base image to prepare. Mandatory.\n'
 	printf '  --variant=NAME          Variant name for preparation process. Mandatory.\n'
-	printf '  --agentic-advice        Enable agentic advice for setup using Ollama.\n'
 	printf '  --no-sudo               Do not use sudo for operations. Optional.\n'
 	printf '  --force                 Force to overwrite existing files.\n'
+	printf '  --skip-steps=S1,S2      Comma-separated list of step names to skip. Optional.\n'
 	printf '  --step=NAME	          Step name to execute. Internal use only.\n'
 }
 
 typeset -A opts
+typeset -a posArgs
 while (($#)); do
-	case $1 in
-	--) break ;;
-	--*=*) opts[${1%%=*}]=${1#*=}; shift ;;
-	--*) opts[$1]=${${2-}##--*}; shift ${${opts[$1]:+2}:-1} ;;
-	*) shift ;;
-	esac
+	if [[ $1 == -- ]]; then
+		posArgs+=("${@:2}")
+		set --
+		break
+	elif [[ $1 == --?*=* ]]; then
+		opts[${1%%=*}]="${1#*=}"
+	elif [[ $1 == --?* ]]; then
+		if [[ ${2:---} == --* ]]; then
+			opts[$1]=''
+		else
+			opts[$1]="$2"
+			shift
+		fi
+	else
+		posArgs+=("$1")
+	fi
+	shift
 done
 
-if [[ -z ${opts[--variant]-} ]]; then
-	printf 'ERROR: --variant is required.\n' >&2
-	usage >&2
-	exit 64
+getoption() {
+	case ${2-optional} in
+	optional)
+		printf '%s' "${opts[$1]-}"
+		;;
+	required)
+		if ((${+opts[$1]})); then
+			printf '%s' "${opts[$1]}"
+		else
+			printf 'ERROR: %s is required.\n' "$1" >&2
+			usage >&2
+			exit 64
+		fi
+		;;
+	flag)
+		printf '%s' "${+opts[$1]}"
+		;;
+	esac
+}
+
+if (($(getoption --version flag))); then
+	printf 'miniboxPrepareVersion=%s\n' "${MINIBOX_VERSION}"
+	exit 0
 fi
 
-prepare_command="minibox-prepare-$opts[--variant]"
+if (($(getoption --help flag))); then
+	usage >&2
+	exit 0
+fi
+
+variant=$(getoption --variant required)
+
+prepare_command="minibox-prepare-${variant}"
 
 if ! whence "${prepare_command}" >/dev/null 2>&1; then
-	printf 'ERROR: Unsupported variant: %s\n' "$opts[--variant]" >&2
+	printf 'ERROR: Unsupported variant: %s\n' "${variant}" >&2
 	printf 'ERROR: Command %s not found.\n' "${prepare_command}" >&2
 	usage >&2
 	exit 127
 fi
 
-"${prepare_command}" "${(kv)opts[@]}"
+"${prepare_command}" "${(kv)opts[@]}" -- "${posArgs[@]}"
