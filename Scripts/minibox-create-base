@@ -1,0 +1,40 @@
+#!/bin/dash
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+usage() {
+	printf 'minibox-create-base: Creates a new base image from resources.\n'
+	printf 'Usage: minibox-create-base <macos|alpine> [args...]\n'
+}
+
+if [ "$#" -eq 0 ]; then
+	usage >&2
+	exit 64
+fi
+
+case "$1" in
+macos)
+	subcommand="minibox-create-base-$1"
+	shift
+	;;
+*)
+	printf 'Unknown subcommand: %s\n' "$1" >&2
+	usage >&2
+	exit 64
+	;;
+esac
+
+if [ -n "${MINIBOX_PATH-}" ]; then
+	PATH="${MINIBOX_PATH}:${PATH}"
+fi
+
+if ! command -v "${subcommand}" >/dev/null 2>&1; then
+	printf 'Subcommand not found: %s\n' "${subcommand}" >&2
+	exit 127
+fi
+
+exec "${subcommand}" "$@"

@@ -10,7 +10,7 @@ let package = Package(
     name: "MiniboxSwift",
     platforms: [.macOS(.v26)],
     products: [
-        .executable(name: "minibox-create-base", targets: ["MiniboxCreateBase"]),
+        .executable(name: "minibox-create-base-macos", targets: ["MiniboxCreateBaseMacOS"]),
         .executable(name: "minibox-view", targets: ["MiniboxView"]),
         .executable(name: "minibox-run", targets: ["MiniboxRun"]),
     ],
@@ -19,7 +19,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "MiniboxCreateBase",
+            name: "MiniboxCreateBaseMacOS",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
