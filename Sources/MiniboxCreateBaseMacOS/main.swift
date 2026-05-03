@@ -69,7 +69,7 @@ private func parseArgs(_ args: ArraySlice<String>) -> ([String: String], [String
 
 let miniboxDataURL: URL
 if let miniboxDataPath = ProcessInfo.processInfo.environment["MINIBOX_DATA_DIR"] {
-    miniboxDataURL = URL(fileURLWithPath: miniboxDataPath, isDirectory: true)
+    miniboxDataURL = URL(filePath: miniboxDataPath, directoryHint: .isDirectory)
 } else {
     miniboxDataURL = kDefaultMiniboxDataDir
 }
@@ -103,7 +103,7 @@ if !FileManager.default.fileExists(atPath: ipswPath) {
     exit(1)
 }
 
-let ipswURL = URL(fileURLWithPath: ipswPath)
+let ipswURL = URL(filePath: ipswPath, directoryHint: .notDirectory)
 
 let force = opts.removeValue(forKey: "--force") == "true"
 
@@ -278,7 +278,7 @@ extension CreateBlankASIFError: LocalizedError {
 private func createBlankASIF(url: URL) throws(CreateBlankASIFError) {
     let process = Process()
 
-    process.executableURL = URL(filePath: "/usr/sbin/diskutil")
+    process.executableURL = URL(filePath: "/usr/sbin/diskutil", directoryHint: .notDirectory)
     process.arguments = [
         "image",
         "create",

@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# file: Scripts/minibox
+# file: Scripts/minibox-tools
 # author: Kaito Udagawa <umireon@kaito.tokyo>
 # version: 0.1.0
 # date: 2026-04-30
@@ -15,15 +15,9 @@ MINIBOX_VERSION=0.1.0
 : "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
 
 usage() {
-	printf 'Usage: minibox <subcommand> [args...]\n'
+	printf 'Usage: minibox-tools <subcommand> [args...]\n'
 	printf 'Available subcommands:\n'
-	printf '  init         Initializes the Minibox data directory and tools.\n'
-	printf '  create-base  Creates a base image.\n'
-	printf '  prepare      Prepares a base image for automation.\n'
-	printf '  run          Runs a runner.\n'
-	printf '  view         Starts a new VM with a image bundle to view its contents.\n'
-	printf '  ls           Lists images on disk.\n'
-	printf '  tools        Invokes Minibox tools.\n'
+	printf '  linux-exec  Execute a Linux VM of Minibox tools.\n'
 }
 
 if [ "$#" -eq 0 ]; then
@@ -33,7 +27,7 @@ fi
 
 case "$1" in
 --version)
-	printf 'minibox %s\n' "$MINIBOX_VERSION"
+	printf 'minibox-tools %s\n' "$MINIBOX_VERSION"
 	exit 0
 	;;
 --help)
@@ -42,7 +36,7 @@ case "$1" in
 	;;
 esac
 
-subcommand="minibox-$1"
+subcommand="minibox-tools-$1"
 shift
 
 [ -n "${MINIBOX_PATH:-}" ] && PATH="$MINIBOX_PATH:$PATH"

@@ -11,13 +11,13 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Run Script"
-               scriptText = "codesign --entitlements &quot;${WORKSPACE_PATH}/../../../entitlements.plist&quot; --force --sign - &quot;${BUILT_PRODUCTS_DIR}/minibox-create-base&quot;&#10;">
+               scriptText = "codesign --entitlements &quot;${WORKSPACE_PATH}/../../../entitlements.plist&quot; --force --sign - &quot;${BUILT_PRODUCTS_DIR}/minibox-tools-linux-exec&quot;&#10;">
                <EnvironmentBuildable>
                   <BuildableReference
                      BuildableIdentifier = "primary"
-                     BlueprintIdentifier = "minibox-create-base"
-                     BuildableName = "minibox-create-base"
-                     BlueprintName = "minibox-create-base"
+                     BlueprintIdentifier = "minibox-tools-linux-exec"
+                     BuildableName = "minibox-tools-linux-exec"
+                     BlueprintName = "minibox-tools-linux-exec"
                      ReferencedContainer = "container:">
                   </BuildableReference>
                </EnvironmentBuildable>
@@ -33,9 +33,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "minibox-create-base"
-               BuildableName = "minibox-create-base"
-               BlueprintName = "minibox-create-base"
+               BlueprintIdentifier = "minibox-tools-linux-exec"
+               BuildableName = "minibox-tools-linux-exec"
+               BlueprintName = "minibox-tools-linux-exec"
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
@@ -63,9 +63,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "minibox-create-base"
-            BuildableName = "minibox-create-base"
-            BlueprintName = "minibox-create-base"
+            BlueprintIdentifier = "minibox-tools-linux-exec"
+            BuildableName = "minibox-tools-linux-exec"
+            BlueprintName = "minibox-tools-linux-exec"
             ReferencedContainer = "container:">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -80,9 +80,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "minibox-create-base"
-            BuildableName = "minibox-create-base"
-            BlueprintName = "minibox-create-base"
+            BlueprintIdentifier = "minibox-tools-linux-exec"
+            BuildableName = "minibox-tools-linux-exec"
+            BlueprintName = "minibox-tools-linux-exec"
             ReferencedContainer = "container:">
          </BuildableReference>
       </BuildableProductRunnable>

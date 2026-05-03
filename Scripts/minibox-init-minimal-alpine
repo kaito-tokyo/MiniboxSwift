@@ -1,0 +1,188 @@
+#!/bin/zsh
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# file: Scripts/minibox-init-minimal-alpine
+# author: Kaito Udagawa <umireon@kaito.tokyo>
+# version: 0.1.0
+# date: 2026-04-30
+
+setopt errexit nounset nullglob pipefail warn_create_global
+
+MINIBOX_VERSION=0.1.0
+: "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
+
+usage() {
+	printf 'minibox-init-minimal-alpine: Initializes the minimal Alpine Linux VM for Minibox tools.\n'
+	printf 'Usage: minibox-init-minimal-alpine\n'
+	printf 'Environment variables:\n'
+	printf '  MINIBOX_DATA_DIR  Path to the Minibox Data directory. Optional.\n'
+}
+
+if ((${argv[(I)--version]})); then
+	printf 'minibox-init-minimal-alpine %s\n' "$MINIBOX_VERSION"
+	exit 0
+elif ((${argv[(I)--help]})); then
+	usage
+	exit 0
+fi
+
+source=(
+	https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/alpine-minirootfs-3.23.4-aarch64.tar.gz
+	https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/netboot-3.23.4/initramfs-virt
+	https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/netboot-3.23.4/vmlinuz-virt
+)
+sha256sums=(
+	9250667a8affac8f1e98086392f80f43f086626701e9bce33398eb9b6c0bd64c
+	30594511105b6cf1b38b5905a0cf9832e3441b015d15d53f2189709d963c1e48
+	624f12e57616ce2ac425eafb265a38f0fb037a371baf99ac75fe46c05167e1cf
+)
+bundlePath="$MINIBOX_DATA_DIR/Tools/minimal-alpine_$MINIBOX_VERSION.miniboxvm"
+
+_download() {
+	local i
+	for ((i = 1; i <= $#source; i++)); do
+		printf '#==> Downloading %s...\n' "$source[i]" >&2
+		curl -fLO "$source[i]" >&2
+		printf '%s  %s\n' "${sha256sums[i]}" "${source[i]##*/}" | sha256sum -c - >&2
+		printf '#==> Verified %s.\n' "${source[i]##*/}" >&2
+	done
+}
+
+_extract_image() {
+	local positions
+	positions=($(LC_ALL=C grep -abo $'\x1f\x8b\x08' vmlinuz-virt | LC_ALL=C tr -cd '0-9\n'))
+
+	local found pos
+	for pos in "$positions[@]"; do
+		tail -c "+$((pos + 1))" vmlinuz-virt >Image.gz
+		gunzip Image.gz || true
+		if [[ $(file Image) == *"Linux kernel ARM64 boot executable Image"* ]]; then
+			found=1
+			break
+		fi
+		rm Image
+	done
+
+	if (($found)); then
+		printf 'INFO: vmlinuz was extracted into Image.\n'
+	else
+		printf 'ERROR: vmlinuz cannot be extracted.\n'
+		exit 1
+	fi
+}
+
+_create_initramfs() {
+	mkdir -p rootfs
+	tar -xf "${source[1]##*/}" -C rootfs
+	tar -xf initramfs-virt -C rootfs --strip-components 1 usr/lib/modules
+
+	mkdir -p rootfs/mnt/shared
+
+	cat <<'EOF' >rootfs/init
+#!/bin/sh
+hostname minibox-tools-minimal-alpine
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs dev /dev
+mkdir -p /dev/pts
+mount -t devpts -o mode=0620,ptmxmode=0666 devpts /dev/pts
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /run
+
+NO_IP=0
+NO_TTY=0
+STDERR_DEVICE=''
+SIGNAL_DEVICE=''
+ENTRYPOINT=/bin/sh
+
+get_console_device() {
+	if [ -z "$1" ]; then
+		printf 'ERROR: Invalid device %s.' "$1" >&2
+		poweroff -f
+		return 1
+	fi
+
+	case "$1" in
+	/dev/*)
+		printf '%s' "$1"
+		return 0
+		;;
+	virtio=*)
+		for port in /sys/class/virtio-ports/*; do
+			if [ -f "$port/name" ] && [ "$(cat "$port/name")" = "${1#virtio=}" ]; then
+				printf '/dev/%s' "$(basename "$port")"
+				return 0
+			fi
+		done
+		;;
+	esac
+
+	printf 'ERROR: No port found: %s.' "$1" >&2
+	poweroff -f
+	return 1
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--entrypoint=*) ENTRYPOINT="${1#*=}" ;;
+	--no-ip) NO_IP=1 ;;
+	--no-tty) NO_TTY=1 ;;
+	--stderr=*) STDERR_DEVICE="$(get_console_device "${1#*=}")" ;;
+	--signal=*) SIGNAL_DEVICE="$(get_console_device "${1#*=}")" ;;
+	--shared)
+		mkdir -p /mnt/shared
+		mount -t virtiofs shared /mnt/shared
+		;;
+	--srv)
+		mkdir -p /srv
+		mount -t virtiofs srv /srv
+		;;
+	*) break ;;
+	esac
+
+	shift
+done
+
+if [ "$NO_IP" -ne 1 ]; then
+	modprobe virtio_net
+	ip link set eth0 up
+	ip link set lo up
+	udhcpc -b -s /usr/share/udhcpc/default.script -i eth0 2>/dev/null
+fi
+
+if [ -n "$STDERR_DEVICE" ]; then
+	exec 2>"$STDERR_DEVICE"
+fi
+
+if [ "$NO_TTY" -eq 1 ]; then
+	"$ENTRYPOINT" "$@"
+else
+	setsid -c "$ENTRYPOINT" "$@"
+fi
+
+printf '\nexit:%d\n' "$?" >"$SIGNAL_DEVICE"
+
+sync
+poweroff -f
+EOF
+	chmod 755 rootfs/init
+
+	(cd rootfs && find . -print0 | cpio -0 -o -H newc -R 0:0 >../initramfs.img)
+}
+
+WORKDIR="$(mktemp -d)"
+cd "$WORKDIR"
+trap 'rm -rf -- "$WORKDIR"' INT TERM EXIT
+
+_download
+_extract_image
+_create_initramfs
+
+mkdir -p "$bundlePath"
+cp -c Image "$bundlePath/Image"
+cp -c initramfs.img "$bundlePath/initramfs.img"
+
+printf '#==> Minimal Alpine Linux VM created at %q\n' "$bundlePath" >&2

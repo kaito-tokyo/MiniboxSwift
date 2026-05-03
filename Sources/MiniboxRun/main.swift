@@ -303,7 +303,7 @@ class MiniboxRun: NSObject, VZVirtualMachineDelegate {
         let process = Process()
         let pipe = Pipe()
 
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/awk")
+        process.executableURL = URL(filePath: "/usr/bin/awk", directoryHint: .notDirectory)
         process.arguments = [
             "-vRS={", "-vmac=\(macAddress.string)", "$0~mac{print}",
             "/var/db/dhcpd_leases",
@@ -442,7 +442,7 @@ let runnerDirectoryURL = URL.applicationSupportDirectory.appending(
     path: "tokyo.kaito.Minibox/runners/\(runnerName)",
     directoryHint: .isDirectory
 )
-let templateBundleURL = URL(fileURLWithPath: bundlePath)
+let templateBundleURL = URL(filePath: bundlePath, directoryHint: .isDirectory)
 
 do {
     let fileManager = FileManager.default

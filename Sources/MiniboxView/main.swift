@@ -94,11 +94,10 @@ guard let bundlePath = opts.removeValue(forKey: "--bundle-path") else {
 if !FileManager.default.fileExists(atPath: bundlePath) {
     logStderr(level: .default, "--bundle-path does not exist: \(bundlePath)")
     logStderr(level: .default, kUsage)
-    print("error:BundlePathNotExistError")
     exit(1)
 }
 
-let bundleURL = URL(fileURLWithPath: bundlePath)
+let bundleURL = URL(filePath: bundlePath, directoryHint: .isDirectory)
 
 guard let cpuCount = Int(opts.removeValue(forKey: "--cpu-count") ?? "3"), cpuCount > 0 else {
     logStderr(level: .error, "Invalid --cpu-count.")
