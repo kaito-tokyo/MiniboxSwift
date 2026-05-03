@@ -10,6 +10,7 @@
 // Date: 2026-05-01
 //
 
+import Darwin
 import Foundation
 import Virtualization
 import os
@@ -87,22 +88,22 @@ var (opts, flags, posArgs, passthroughArgs) = parseArgsWithPassthrough(
 
 if flags.remove("--version") != nil {
     print("minibox-tools-linux-exec \(kVersion)")
-    exit(0)
+    exit(EX_OK)
 } else if flags.remove("--help") != nil {
     print(kUsage)
-    exit(0)
+    exit(EX_OK)
 }
 
 guard let toolName = opts.removeValue(forKey: "--tool-name") else {
     logStderr(level: .error, "--tool-name=NAME missing.")
     logStderr(level: .default, kUsage)
-    exit(64)
+    exit(EX_NOINPUT)
 }
 
 guard toolName.wholeMatch(of: /[-a-zA-Z0-9_.]+/) != nil else {
     logStderr(level: .error, "Invalid --tool-name.")
     logStderr(level: .default, kUsage)
-    exit(64)
+    exit(EX_USAGE)
 }
 
 let bundleURL: URL
@@ -116,7 +117,7 @@ if FileManager.default.fileExists(atPath: exactToolURL.path(percentEncoded: fals
 } else {
     logStderr(level: .error, "\(toolName) not found.")
     logStderr(level: .default, kUsage)
-    exit(64)
+    exit(EX_USAGE)
 }
 
 let sharedURL: URL?
@@ -152,7 +153,7 @@ if let cpuCountString = opts.removeValue(forKey: "--cpu-count") {
     guard let cpuCountValue = Int(cpuCountString), cpuCountValue > 0 else {
         logStderr(level: .error, "Invalid --cpu-count.")
         logStderr(level: .default, kUsage)
-        exit(64)
+        exit(EX_USAGE)
     }
     cpuCount = cpuCountValue
 } else {
@@ -164,7 +165,7 @@ if let memoryMbString = opts.removeValue(forKey: "--memory-mb") {
     guard let memoryMbValue = UInt64(memoryMbString), memoryMbValue > 0 else {
         logStderr(level: .error, "Invalid --memory-mb.")
         logStderr(level: .default, kUsage)
-        exit(64)
+        exit(EX_USAGE)
     }
     memoryMb = memoryMbValue
 } else {
@@ -176,11 +177,11 @@ let noIP = flags.remove("--no-ip") != nil
 if !opts.isEmpty {
     logStderr(level: .error, "Unrecognized options found.")
     logStderr(level: .default, kUsage)
-    exit(64)
+    exit(EX_USAGE)
 } else if !posArgs.isEmpty {
     logStderr(level: .error, "No positional argument is permitted.")
     logStderr(level: .default, kUsage)
-    exit(64)
+    exit(EX_USAGE)
 }
 
 struct MiniboxLinuxBundle {
@@ -314,37 +315,45 @@ func loadAndSaveVMConfig(
     return config
 }
 
-class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
-    enum MainError: Error, LocalizedError {
-        case configValidationError(any Error)
-        case consoleDeviceGetError
-        case sharingDeviceGetError
+enum MiniboxToolsLinuxExecMainError: Error {
+    case configValidationError(any Error)
+    case consoleDeviceGetError
+    case sharingDeviceGetError
+    case vmStartFailureError(any Error)
+    case vmStoppedWithError(any Error)
+    case forceExit
 
-        var errorDescription: String? {
-            switch self {
-            case .configValidationError(let error):
-                "Failed to validate config: \(error)"
-            case .consoleDeviceGetError:
-                "Failed to get a console device."
-            case .sharingDeviceGetError:
-                "Failed to get a sharing device."
-            }
+    var errorDescription: String? {
+        switch self {
+        case .configValidationError(let error):
+            "Failed to validate config: \(error.localizedDescription)"
+        case .consoleDeviceGetError: "Failed to get a console device."
+        case .sharingDeviceGetError: "Failed to get a sharing device."
+        case .vmStartFailureError(let error): "Failed to start a VM: \(error.localizedDescription)"
+        case .vmStoppedWithError(let error): "VM stopeed with error: \(error.localizedDescription)"
+        case .forceExit: "FORCE EXIT"
         }
     }
+}
 
+class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     let consolePort: VZVirtioConsolePort
     let stderrPort: VZVirtioConsolePort
     let sharedDirectoryDevice: VZVirtioFileSystemDevice
     let srvDirectoryDevice: VZVirtioFileSystemDevice
-    let exitLock = OSAllocatedUnfairLock<Int32>(initialState: -1)
 
+    private let exitToken: OSAllocatedUnfairLock<(any Error)?>
     private let config: VZVirtualMachineConfiguration
     private let vm: VZVirtualMachine
 
     private let signalPipe = Pipe()
+    private let signalBuffer = OSAllocatedUnfairLock(initialState: Data())
     private let didResume = OSAllocatedUnfairLock(initialState: false)
 
-    init(config: VZVirtualMachineConfiguration) throws(MainError) {
+    init(
+        exitToken: OSAllocatedUnfairLock<(any Error)?>,
+        config: VZVirtualMachineConfiguration
+    ) throws(MiniboxToolsLinuxExecMainError) {
         let consoleConfig = VZVirtioConsoleDeviceConfiguration()
 
         do {
@@ -381,9 +390,10 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
         do {
             try config.validate()
         } catch {
-            throw MainError.configValidationError(error)
+            throw MiniboxToolsLinuxExecMainError.configValidationError(error)
         }
 
+        self.exitToken = exitToken
         self.config = config
         self.vm = VZVirtualMachine(configuration: config)
 
@@ -392,7 +402,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
             let consolePort = consoleDevice.ports[0],
             let stderrPort = consoleDevice.ports[1]
         else {
-            throw MainError.consoleDeviceGetError
+            throw MiniboxToolsLinuxExecMainError.consoleDeviceGetError
         }
 
         self.consolePort = consolePort
@@ -404,7 +414,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
             let srvDirectoryDevice = vm.directorySharingDevices[1] as? VZVirtioFileSystemDevice,
             srvDirectoryDevice.tag == "srv"
         else {
-            throw MainError.sharingDeviceGetError
+            throw MiniboxToolsLinuxExecMainError.sharingDeviceGetError
         }
         self.sharedDirectoryDevice = sharedDirectoryDevice
         self.srvDirectoryDevice = srvDirectoryDevice
@@ -431,23 +441,39 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     }
 
     func start() {
+        let signalBuffer = self.signalBuffer
+
+        signalPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+
+            signalBuffer.withLock { $0.append(data) }
+        }
+
+        let exitToken = self.exitToken
         vm.start { result in
             if case .failure(let error) = result {
                 logStderr(level: .error, error.localizedDescription)
-                self.resume(returning: 1)
+                exitToken.withLock {
+                    $0 = MiniboxToolsLinuxExecMainError.vmStartFailureError(error)
+                }
             }
         }
     }
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-        let data = signalPipe.fileHandleForReading.availableData
-        let string = String(data: data, encoding: .ascii)
-        if let match = string?.firstMatch(of: /exit:([0-9]+)\n/) {
-            self.resume(returning: Int32(match.output.1) ?? 1)
-        } else {
-            logStderr(level: .error, "Guest did not report a valid exit code.")
-            self.resume(returning: 1)
-        }
+//        let data = signalPipe.fileHandleForReading.availableData
+//        let string = String(data: data, encoding: .ascii)
+//        if let match = string?.firstMatch(of: /exit:([0-9]+)\n/) {
+//            //            self.resume(returning: Int32(match.output.1) ?? 1)
+//        } else {
+//            logStderr(level: .error, "Guest did not report a valid exit code.")
+//            //            self.resume(returning: 1)
+//        }
     }
 
     func virtualMachine(
@@ -455,7 +481,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
         didStopWithError error: any Error
     ) {
         logStderr(level: .error, error.localizedDescription)
-        self.resume(returning: 1)
+        exitToken.withLock { $0 = MiniboxToolsLinuxExecMainError.vmStoppedWithError(error) }
     }
 
     func virtualMachine(
@@ -464,11 +490,6 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
         attachmentWasDisconnectedWithError error: any Error
     ) {
         logStderr(level: .error, error.localizedDescription)
-        self.resume(returning: 1)
-    }
-
-    private func resume(returning value: Int32) {
-        exitLock.withLock { $0 = value }
     }
 }
 
@@ -519,9 +540,11 @@ do {
     exit(1)
 }
 
+let exitToken = OSAllocatedUnfairLock<(any Error)?>(initialState: nil)
+
 let main: MiniboxToolsLinuxExecMain
 do {
-    main = try MiniboxToolsLinuxExecMain(config: config)
+    main = try MiniboxToolsLinuxExecMain(exitToken: exitToken, config: config)
 } catch {
     logStderr(level: .error, error.localizedDescription)
     exit(1)
@@ -536,7 +559,12 @@ let forceExitCount = 10
 
 FileHandle.standardInput.readabilityHandler = { handle in
     let data = handle.availableData
-    guard !data.isEmpty else { return }
+
+    guard !data.isEmpty else {
+        handle.readabilityHandler = nil
+        try? inputPipe.fileHandleForWriting.close()
+        return
+    }
 
     try? inputPipe.fileHandleForWriting.write(contentsOf: data)
 
@@ -559,9 +587,7 @@ FileHandle.standardInput.readabilityHandler = { handle in
 
     if count >= forceExitCount {
         logStderr(level: .info, "Force-exiting VM...")
-        DispatchQueue.main.async {
-            main.exitLock.withLock { $0 = 130 }
-        }
+        exitToken.withLock { $0 = MiniboxToolsLinuxExecMainError.forceExit }
     } else if containsCtrlc && count >= 3 {
         logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
     }
@@ -599,7 +625,7 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
         let newSigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         newSigtermSource.setEventHandler {
             newSigtermSource.cancel()
-            main.exitLock.withLock({ $0 = 1 })
+            //            exitToken.withLock({ $0 = 1 })
         }
         newSigtermSource.activate()
         signal(SIGTERM, SIG_IGN)
@@ -612,12 +638,45 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
     origAttributes = nil
 }
 
-while RunLoop.main.run(mode: .default, before: .distantFuture) {
-    let exitCode = main.exitLock.withLock({ $0 })
-    if exitCode >= 0 {
-        if var origAttributes {
-            tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
+extension LoadAndSaveVMConfigError {
+    var exitCode: Int32 {
+        switch self {
+        case .machineIdentifierDataLoadError: EX_NOINPUT
+        case .machineIdentifierLoadError: EX_CONFIG
+        case .machineIdentifierSaveError: EX_CANTCREAT
+        case .imageNotFoundError: EX_NOINPUT
+        case .initramfsNotFoundError: EX_NOINPUT
+        case .macAddressLoadError: EX_NOINPUT
+        case .macAddressInitError: EX_CONFIG
+        case .macAddressSaveError: EX_CANTCREAT
         }
-        exit(exitCode)
     }
 }
+
+extension MiniboxToolsLinuxExecMainError {
+    var exitCode: Int32 {
+        switch self {
+        case .configValidationError: EX_CONFIG
+        case .consoleDeviceGetError: EX_OSERR
+        case .sharingDeviceGetError: EX_OSERR
+        case .vmStartFailureError: EX_SOFTWARE
+        case .vmStoppedWithError: EX_SOFTWARE
+        case .forceExit: EX_SOFTWARE
+        }
+    }
+}
+
+while RunLoop.main.run(mode: .default, before: .distantFuture) {
+    exitToken.withLock {
+        switch $0 {
+        case nil: return
+        case let error as LoadAndSaveVMConfigError: exit(error.exitCode)
+        case let error as MiniboxToolsLinuxExecMainError: exit(error.exitCode)
+        case .some(let error):
+            logStderr(level: .error, "Unhandled error: \(error.localizedDescription)")
+            exit(EX_SOFTWARE)
+        }
+    }
+}
+
+fatalError("Unexpected RunLoop exit.")
