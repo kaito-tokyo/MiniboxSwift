@@ -26,6 +26,7 @@ private let kUsage = """
       --cpu-count=1            vCPU count. Optional.
       --memory-mb=256          Memory size in megabytes. Optional.
       --no-ip                  Disables guest network setup.
+      --no-tty                 Disables TTY control.
       [entrypoint args...]     Kernel parameter literals for entrypoint. Optional.
     Environment variables:
       MINIBOX_DATA_DIR  Path to the Minibox Data directory. Optional.
@@ -744,6 +745,7 @@ if noTTY {
         attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
 
         if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
+            signal(SIGINT, SIG_IGN)
             origAttributes = newOrigAttributes
         } else {
             signal(SIGINT, SIG_IGN)
