@@ -84,8 +84,9 @@ if let miniboxDataPath = ProcessInfo.processInfo.environment["MINIBOX_DATA_DIR"]
     miniboxDataURL = kDefaultMiniboxDataDir
 }
 
-var (opts, flags, posArgs, passthroughArgs) = parseArgsWithPassthrough(
-    CommandLine.arguments.dropFirst())
+var (opts, flags, posArgs, passthroughArgs) = parseArgs(
+    withPassthru: CommandLine.arguments.dropFirst()
+)
 
 if flags.remove("--version") != nil {
     print("minibox-tools-linux-exec \(kVersion)")
