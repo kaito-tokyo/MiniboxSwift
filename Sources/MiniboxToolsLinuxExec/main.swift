@@ -50,7 +50,7 @@ private func logStderr(
     try? fileHandle.write(contentsOf: Data(logMessage.utf8))
 }
 
-func parseArgsWithPassthrough(_ args: ArraySlice<String>) -> (
+private func parseArgs(withPassthru args: ArraySlice<String>) -> (
     opts: [String: String], flags: Set<String>, posArgs: [String], passthroughArgs: [String]
 ) {
     var opts: [String: String] = [:]
@@ -189,7 +189,7 @@ let memorySize: UInt64
 do {
     let (memorySizeValue, overflow) = memoryMb.multipliedReportingOverflow(by: 1024 * 1024)
     guard !overflow else {
-        logStderr(level: .error, "--memory-mb value is too large")
+        logStderr(level: .error, "--memory-mb value is too large.")
         logStderr(level: .default, kUsage)
         exit(EX_USAGE)
     }
@@ -581,7 +581,7 @@ extension MiniboxToolsLinuxExecMainError {
 
 let commandLineParameters: [String]
 do {
-    var newCommndLineParameters = [
+    var newCommandLineParameters = [
         "console=hvc0",
         "quiet",
         "--",
@@ -590,24 +590,28 @@ do {
     ]
 
     if sharedURL != nil {
-        newCommndLineParameters.append("--shared")
+        newCommandLineParameters.append("--shared")
     }
 
     if !srvURLs.isEmpty {
-        newCommndLineParameters.append("--srv")
+        newCommandLineParameters.append("--srv")
     }
 
     if let entrypoint {
-        newCommndLineParameters.append("--entrypoint=\(entrypoint)")
+        newCommandLineParameters.append("--entrypoint=\(entrypoint)")
     }
 
     if noIP {
-        newCommndLineParameters.append("--no-ip")
+        newCommandLineParameters.append("--no-ip")
     }
 
-    newCommndLineParameters += passthroughArgs
+    if noTTY {
+        newCommandLineParameters.append("--no-tty")
+    }
 
-    commandLineParameters = newCommndLineParameters
+    newCommandLineParameters += passthroughArgs
+
+    commandLineParameters = newCommandLineParameters
 }
 
 let miniboxBundle = MiniboxLinuxBundle(
@@ -641,8 +645,6 @@ do {
 }
 
 let inputPipe = Pipe()
-var ctrlCCount = 0
-var firstCtrlCAt = Date.distantPast
 
 let ctrlcLock = OSAllocatedUnfairLock(initialState: 0)
 let forceExitCount = 10
