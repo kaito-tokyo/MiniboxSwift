@@ -321,7 +321,6 @@ enum MiniboxToolsLinuxExecMainError: Error {
     case sharingDeviceGetError
     case vmStartFailureError(any Error)
     case vmStoppedWithError(any Error)
-    case forceExit
 
     var errorDescription: String? {
         switch self {
@@ -331,9 +330,14 @@ enum MiniboxToolsLinuxExecMainError: Error {
         case .sharingDeviceGetError: "Failed to get a sharing device."
         case .vmStartFailureError(let error): "Failed to start a VM: \(error.localizedDescription)"
         case .vmStoppedWithError(let error): "VM stopeed with error: \(error.localizedDescription)"
-        case .forceExit: "FORCE EXIT"
         }
     }
+}
+
+enum MiniboxToolsLinuxExecExitEvent: Error {
+    case guestDidStop
+    case forceExit
+    case sigterm
 }
 
 class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
@@ -348,7 +352,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
 
     private let signalPipe = Pipe()
     private let signalBuffer = OSAllocatedUnfairLock(initialState: Data())
-    private let didResume = OSAllocatedUnfairLock(initialState: false)
+    private let signalQueue = DispatchQueue(label: "tokyo.kaito.MiniboxSwift.MiniboxToolsLinuxExec.signal")
 
     init(
         exitToken: OSAllocatedUnfairLock<(any Error)?>,
@@ -440,18 +444,36 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
         )
     }
 
-    func start() {
+    func start(signalHandler: @escaping @Sendable (String) -> Void) {
+        let signalQueue = DispatchQueue(label: "tokyo.kaito.MiniboxSwift.MiniboxToolsLinuxExec.signal")
         let signalBuffer = self.signalBuffer
 
         signalPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
+            let receivedData = handle.availableData
 
-            guard !data.isEmpty else {
+            guard !receivedData.isEmpty else {
                 handle.readabilityHandler = nil
                 return
             }
 
-            signalBuffer.withLock { $0.append(data) }
+            signalBuffer.withLock { data in
+                data.append(receivedData)
+                
+                while let newlineIndex = data.firstIndex(of: 0x0a) {
+                    let lineData = data[..<newlineIndex]
+                    data.removeSubrange(...newlineIndex)
+                    
+                    guard let line = String(data: lineData, encoding: .utf8) else {
+                        logStderr(level: .error, "Invalid signal line received. Discarding...")
+                        continue
+                    }
+                    
+                    signalQueue.async {
+                        signalHandler(line)
+                    }
+                }
+
+            }
         }
 
         let exitToken = self.exitToken
@@ -466,14 +488,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     }
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-        //        let data = signalPipe.fileHandleForReading.availableData
-        //        let string = String(data: data, encoding: .ascii)
-        //        if let match = string?.firstMatch(of: /exit:([0-9]+)\n/) {
-        //            //            self.resume(returning: Int32(match.output.1) ?? 1)
-        //        } else {
-        //            logStderr(level: .error, "Guest did not report a valid exit code.")
-        //            //            self.resume(returning: 1)
-        //        }
+        exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.guestDidStop }
     }
 
     func virtualMachine(
@@ -568,26 +583,25 @@ FileHandle.standardInput.readabilityHandler = { handle in
 
     try? inputPipe.fileHandleForWriting.write(contentsOf: data)
 
-    let (count, containsCtrlc) = ctrlcLock.withLock {
-        var count = $0
+    let (count, containsCtrlc) = ctrlcLock.withLock { count in
+        var newCount = count
         var containsCtrlc = false
         for byte in data {
             if byte == 0x03 {
-                count += 1
+                newCount += 1
                 containsCtrlc = true
             } else if byte == 0x1b {
                 break
             } else if byte >= 0x20 && byte != 0x7f {
-                count = 0
+                newCount = 0
             }
         }
-        $0 = count
-        return (count, containsCtrlc)
+        count = newCount
+        return (newCount, containsCtrlc)
     }
 
     if count >= forceExitCount {
-        logStderr(level: .info, "Force-exiting VM...")
-        exitToken.withLock { $0 = MiniboxToolsLinuxExecMainError.forceExit }
+        exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
     } else if containsCtrlc && count >= 3 {
         logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
     }
@@ -611,7 +625,15 @@ if !srvURLs.isEmpty {
     )
 }
 
-main.start()
+let guestExitCodeLock = OSAllocatedUnfairLock<Int32?>(initialState: nil)
+
+main.start { signalLine in
+    if let match = signalLine.firstMatch(of: /exit:([0-9]+)\n/),
+        let exitCode = Int32(match.output.1)
+    {
+        guestExitCodeLock.withLock{ $0 = exitCode }
+    }
+}
 
 let sigtermSource: DispatchSourceSignal?
 var attributes = termios()
@@ -625,7 +647,7 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
         let newSigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         newSigtermSource.setEventHandler {
             newSigtermSource.cancel()
-            //            exitToken.withLock({ $0 = 1 })
+            exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.sigterm }
         }
         newSigtermSource.activate()
         signal(SIGTERM, SIG_IGN)
@@ -661,21 +683,46 @@ extension MiniboxToolsLinuxExecMainError {
         case .sharingDeviceGetError: EX_OSERR
         case .vmStartFailureError: EX_SOFTWARE
         case .vmStoppedWithError: EX_SOFTWARE
-        case .forceExit: 128 + SIGINT
         }
     }
 }
 
 while RunLoop.main.run(mode: .default, before: .distantFuture) {
-    exitToken.withLock {
-        switch $0 {
-        case nil: return
-        case let error as LoadAndSaveVMConfigError: exit(error.exitCode)
-        case let error as MiniboxToolsLinuxExecMainError: exit(error.exitCode)
-        case .some(let error):
+    let guestDidStop = exitToken.withLock { (token: inout (any Error)?) in
+        guard let error = token else { return false }
+        switch error {
+        case MiniboxToolsLinuxExecExitEvent.guestDidStop:
+            return true
+        case MiniboxToolsLinuxExecExitEvent.forceExit:
+            logStderr(level: .info, "Force-exiting VM...")
+            exit(128 + SIGINT)
+        case MiniboxToolsLinuxExecExitEvent.sigterm:
+            logStderr(level: .info, "Receiving SIGTERM. Exiting VM...")
+            exit(128 + SIGTERM)
+        case let error as LoadAndSaveVMConfigError:
+            logStderr(level: .error, error.localizedDescription)
+            exit(error.exitCode)
+        case let error as MiniboxToolsLinuxExecMainError:
+            logStderr(level: .error, error.localizedDescription)
+            exit(error.exitCode)
+        default:
             logStderr(level: .error, "Unhandled error: \(error.localizedDescription)")
             exit(EX_SOFTWARE)
         }
+    }
+
+    if guestDidStop {
+        for _ in 0..<1000 {
+            guestExitCodeLock.withLockIfAvailableUnchecked {
+                if let exitCode = $0 {
+                    exit(exitCode)
+                }
+            }
+            sched_yield()
+        }
+
+        logStderr(level: .error, "Guest did not report exit code. Exiting with failure...")
+        exit(EX_SOFTWARE)
     }
 }
 
