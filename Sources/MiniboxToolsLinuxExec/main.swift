@@ -630,7 +630,9 @@ FileHandle.standardInput.readabilityHandler = { handle in
     }
 
     if count >= forceExitCount {
-        exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
+        DispatchQueue.main.async {
+            exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
+        }
     } else if containsCtrlc && count >= 3 {
         logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
     }
@@ -670,6 +672,8 @@ let sigtermSource: DispatchSourceSignal?
 var attributes = termios()
 let origAttributes: termios?
 if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
+    let newOrigAttributes = attributes
+    
     attributes.c_iflag &= ~tcflag_t(ICRNL)
     attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
     if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
@@ -681,7 +685,7 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
         newSigtermSource.activate()
         signal(SIGTERM, SIG_IGN)
         sigtermSource = newSigtermSource
-        origAttributes = attributes
+        origAttributes = newOrigAttributes
     } else {
         sigtermSource = nil
         origAttributes = nil
