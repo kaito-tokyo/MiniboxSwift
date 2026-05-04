@@ -148,6 +148,18 @@ do {
     srvURLs = newSrvURLs
 }
 
+let entrypoint: String?
+if let entrypointString = opts.removeValue(forKey: "--entrypoint") {
+    guard entrypointString.wholeMatch(of: /[^ "]+/) != nil else {
+        logStderr(level: .error, "Invalid --entrypoint.")
+        logStderr(level: .default, kUsage)
+        exit(EX_USAGE)
+    }
+    entrypoint = entrypointString
+} else {
+    entrypoint = nil
+}
+
 let cpuCount: Int
 if let cpuCountString = opts.removeValue(forKey: "--cpu-count") {
     guard let cpuCountValue = Int(cpuCountString), cpuCountValue > 0 else {
@@ -172,10 +184,26 @@ if let memoryMbString = opts.removeValue(forKey: "--memory-mb") {
     memoryMb = 256
 }
 
+let memorySize: UInt64
+do {
+    let (memorySizeValue, overflow) = memoryMb.multipliedReportingOverflow(by: 1024 * 1024)
+    guard !overflow else {
+        logStderr(level: .error, "--memory-mb value is too large")
+        logStderr(level: .default, kUsage)
+        exit(EX_USAGE)
+    }
+    memorySize = memorySizeValue
+}
+
 let noIP = flags.remove("--no-ip") != nil
+let noTTY = flags.remove("--no-tty") != nil
 
 if !opts.isEmpty {
     logStderr(level: .error, "Unrecognized options found.")
+    logStderr(level: .default, kUsage)
+    exit(EX_USAGE)
+} else if !flags.isEmpty {
+    logStderr(level: .error, "Unrecognized flags found.")
     logStderr(level: .default, kUsage)
     exit(EX_USAGE)
 } else if !posArgs.isEmpty {
@@ -315,7 +343,7 @@ func loadAndSaveVMConfig(
     return config
 }
 
-enum MiniboxToolsLinuxExecMainError: Error {
+enum MiniboxToolsLinuxExecMainError: Error, LocalizedError {
     case configValidationError(any Error)
     case consoleDeviceGetError
     case sharingDeviceGetError
@@ -329,15 +357,23 @@ enum MiniboxToolsLinuxExecMainError: Error {
         case .consoleDeviceGetError: "Failed to get a console device."
         case .sharingDeviceGetError: "Failed to get a sharing device."
         case .vmStartFailureError(let error): "Failed to start a VM: \(error.localizedDescription)"
-        case .vmStoppedWithError(let error): "VM stopeed with error: \(error.localizedDescription)"
+        case .vmStoppedWithError(let error): "VM stopped with error: \(error.localizedDescription)"
         }
     }
 }
 
-enum MiniboxToolsLinuxExecExitEvent: Error {
+enum MiniboxToolsLinuxExecExitEvent: Error, LocalizedError {
     case guestDidStop
     case forceExit
     case sigterm
+
+    var errorDescription: String? {
+        switch self {
+        case .guestDidStop: "Guest stopped."
+        case .forceExit: "User triggered force-exit."
+        case .sigterm: "SIGTERM received."
+        }
+    }
 }
 
 class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
@@ -558,6 +594,10 @@ do {
         newCommndLineParameters.append("--srv")
     }
 
+    if let entrypoint {
+        newCommndLineParameters.append("--entrypoint=\(entrypoint)")
+    }
+
     if noIP {
         newCommndLineParameters.append("--no-ip")
     }
@@ -580,7 +620,7 @@ do {
         miniboxBundle: miniboxBundle,
         commandLine: commandLineParameters.joined(separator: " "),
         cpuCount: cpuCount,
-        memorySize: memoryMb * 1024 * 1024,
+        memorySize: memorySize,
     )
 } catch {
     logStderr(level: .error, error.localizedDescription)
@@ -669,31 +709,52 @@ main.start { signalLine in
     }
 }
 
-let sigtermSource: DispatchSourceSignal?
-var attributes = termios()
-let origAttributes: termios?
-if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
-    let newOrigAttributes = attributes
+let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
 
-    attributes.c_iflag &= ~tcflag_t(ICRNL)
-    attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
-    if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
-        let newSigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        newSigtermSource.setEventHandler {
-            newSigtermSource.cancel()
-            exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.sigterm }
-            CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
+sigintSource.setEventHandler {
+    sigintSource.cancel()
+    sigtermSource.cancel()
+    exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
+    CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
+}
+
+sigtermSource.setEventHandler {
+    sigintSource.cancel()
+    sigtermSource.cancel()
+    exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.sigterm }
+    CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
+}
+
+signal(SIGTERM, SIG_IGN)
+sigtermSource.activate()
+
+let origAttributes: termios?
+
+if noTTY {
+    signal(SIGINT, SIG_IGN)
+    sigintSource.activate()
+    origAttributes = nil
+} else {
+    var attributes = termios()
+    if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
+        let newOrigAttributes = attributes
+
+        attributes.c_iflag &= ~tcflag_t(ICRNL)
+        attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
+
+        if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
+            origAttributes = newOrigAttributes
+        } else {
+            signal(SIGINT, SIG_IGN)
+            sigintSource.activate()
+            origAttributes = nil
         }
-        newSigtermSource.activate()
-        signal(SIGTERM, SIG_IGN)
-        sigtermSource = newSigtermSource
-        origAttributes = newOrigAttributes
     } else {
-        sigtermSource = nil
+        signal(SIGINT, SIG_IGN)
+        sigintSource.activate()
         origAttributes = nil
     }
-} else {
-    origAttributes = nil
 }
 
 while RunLoop.main.run(mode: .default, before: .distantFuture) {
