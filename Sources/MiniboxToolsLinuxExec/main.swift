@@ -510,6 +510,33 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     }
 }
 
+extension LoadAndSaveVMConfigError {
+    var exitCode: Int32 {
+        switch self {
+        case .machineIdentifierDataLoadError: EX_NOINPUT
+        case .machineIdentifierLoadError: EX_CONFIG
+        case .machineIdentifierSaveError: EX_CANTCREAT
+        case .imageNotFoundError: EX_NOINPUT
+        case .initramfsNotFoundError: EX_NOINPUT
+        case .macAddressLoadError: EX_NOINPUT
+        case .macAddressInitError: EX_CONFIG
+        case .macAddressSaveError: EX_CANTCREAT
+        }
+    }
+}
+
+extension MiniboxToolsLinuxExecMainError {
+    var exitCode: Int32 {
+        switch self {
+        case .configValidationError: EX_CONFIG
+        case .consoleDeviceGetError: EX_OSERR
+        case .sharingDeviceGetError: EX_OSERR
+        case .vmStartFailureError: EX_SOFTWARE
+        case .vmStoppedWithError: EX_SOFTWARE
+        }
+    }
+}
+
 let commandLineParameters: [String]
 do {
     var newCommndLineParameters = [
@@ -554,7 +581,7 @@ do {
     )
 } catch {
     logStderr(level: .error, error.localizedDescription)
-    exit(1)
+    exit(error.exitCode)
 }
 
 let exitToken = OSAllocatedUnfairLock<(any Error)?>(initialState: nil)
@@ -564,7 +591,7 @@ do {
     main = try MiniboxToolsLinuxExecMain(exitToken: exitToken, config: config)
 } catch {
     logStderr(level: .error, error.localizedDescription)
-    exit(1)
+    exit(error.exitCode)
 }
 
 let inputPipe = Pipe()
@@ -630,7 +657,7 @@ if !srvURLs.isEmpty {
 let guestExitCodeLock = OSAllocatedUnfairLock<Int32?>(initialState: nil)
 
 main.start { signalLine in
-    if let match = signalLine.firstMatch(of: /exit:([0-9]+)\n/),
+    if let match = signalLine.wholeMatch(of: /exit:([0-9]+)/),
         let exitCode = Int32(match.output.1)
     {
         guestExitCodeLock.withLock { $0 = exitCode }
@@ -660,33 +687,6 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
     }
 } else {
     origAttributes = nil
-}
-
-extension LoadAndSaveVMConfigError {
-    var exitCode: Int32 {
-        switch self {
-        case .machineIdentifierDataLoadError: EX_NOINPUT
-        case .machineIdentifierLoadError: EX_CONFIG
-        case .machineIdentifierSaveError: EX_CANTCREAT
-        case .imageNotFoundError: EX_NOINPUT
-        case .initramfsNotFoundError: EX_NOINPUT
-        case .macAddressLoadError: EX_NOINPUT
-        case .macAddressInitError: EX_CONFIG
-        case .macAddressSaveError: EX_CANTCREAT
-        }
-    }
-}
-
-extension MiniboxToolsLinuxExecMainError {
-    var exitCode: Int32 {
-        switch self {
-        case .configValidationError: EX_CONFIG
-        case .consoleDeviceGetError: EX_OSERR
-        case .sharingDeviceGetError: EX_OSERR
-        case .vmStartFailureError: EX_SOFTWARE
-        case .vmStoppedWithError: EX_SOFTWARE
-        }
-    }
 }
 
 while RunLoop.main.run(mode: .default, before: .distantFuture) {
