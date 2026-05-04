@@ -660,16 +660,16 @@ main.start { signalLine in
     if let match = signalLine.wholeMatch(of: /exit:([0-9]+)/),
         let exitCode = Int32(match.output.1)
     {
-        guestExitCodeLock.withLock { $0 = exitCode }
+        DispatchQueue.main.async {
+            guestExitCodeLock.withLock { $0 = exitCode }
+        }
     }
 }
 
 let sigtermSource: DispatchSourceSignal?
 var attributes = termios()
-var origAttributes: termios?
+let origAttributes: termios?
 if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
-    origAttributes = attributes
-
     attributes.c_iflag &= ~tcflag_t(ICRNL)
     attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
     if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
@@ -681,6 +681,7 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
         newSigtermSource.activate()
         signal(SIGTERM, SIG_IGN)
         sigtermSource = newSigtermSource
+        origAttributes = attributes
     } else {
         sigtermSource = nil
         origAttributes = nil
@@ -692,31 +693,41 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
 while RunLoop.main.run(mode: .default, before: .distantFuture) {
     let guestDidStop = exitToken.withLock { (token: inout (any Error)?) in
         guard let error = token else { return false }
+
+        let exitCode: Int32
         switch error {
         case MiniboxToolsLinuxExecExitEvent.guestDidStop:
             return true
         case MiniboxToolsLinuxExecExitEvent.forceExit:
             logStderr(level: .info, "Force-exiting VM...")
-            exit(128 + SIGINT)
+            exitCode = 128 + SIGINT
         case MiniboxToolsLinuxExecExitEvent.sigterm:
             logStderr(level: .info, "Receiving SIGTERM. Exiting VM...")
-            exit(128 + SIGTERM)
+            exitCode = 128 + SIGTERM
         case let error as LoadAndSaveVMConfigError:
             logStderr(level: .error, error.localizedDescription)
-            exit(error.exitCode)
+            exitCode = error.exitCode
         case let error as MiniboxToolsLinuxExecMainError:
             logStderr(level: .error, error.localizedDescription)
-            exit(error.exitCode)
+            exitCode = error.exitCode
         default:
             logStderr(level: .error, "Unhandled error: \(error.localizedDescription)")
-            exit(EX_SOFTWARE)
+            exitCode = EX_SOFTWARE
         }
+        
+        if var origAttributes {
+            tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
+        }
+        exit(exitCode)
     }
 
     if guestDidStop {
         for _ in 0..<1000 {
             guestExitCodeLock.withLockIfAvailableUnchecked {
                 if let exitCode = $0 {
+                    if var origAttributes {
+                        tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
+                    }
                     exit(exitCode)
                 }
             }
@@ -724,8 +735,15 @@ while RunLoop.main.run(mode: .default, before: .distantFuture) {
         }
 
         logStderr(level: .error, "Guest did not report exit code. Exiting with failure...")
+        if var origAttributes {
+            tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
+        }
         exit(EX_SOFTWARE)
     }
 }
 
+
+if var origAttributes {
+    tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
+}
 fatalError("Unexpected RunLoop exit.")
