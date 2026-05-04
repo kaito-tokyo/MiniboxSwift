@@ -492,6 +492,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.guestDidStop }
+        CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
     }
 
     func virtualMachine(
