@@ -366,12 +366,14 @@ enum MiniboxToolsLinuxExecMainError: Error, LocalizedError {
 enum MiniboxToolsLinuxExecExitEvent: Error, LocalizedError {
     case guestDidStop
     case forceExit
+    case sigint
     case sigterm
 
     var errorDescription: String? {
         switch self {
         case .guestDidStop: "Guest stopped."
         case .forceExit: "User triggered force-exit."
+        case .sigint: "SIGINT received."
         case .sigterm: "SIGTERM received."
         }
     }
@@ -716,7 +718,7 @@ let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .mai
 sigintSource.setEventHandler {
     sigintSource.cancel()
     sigtermSource.cancel()
-    exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
+    exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.sigint }
     CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
 }
 
@@ -730,11 +732,12 @@ sigtermSource.setEventHandler {
 signal(SIGTERM, SIG_IGN)
 sigtermSource.activate()
 
+signal(SIGINT, SIG_IGN)
+sigintSource.activate()
+
 let origAttributes: termios?
 
 if noTTY {
-    signal(SIGINT, SIG_IGN)
-    sigintSource.activate()
     origAttributes = nil
 } else {
     var attributes = termios()
@@ -745,16 +748,11 @@ if noTTY {
         attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
 
         if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
-            signal(SIGINT, SIG_IGN)
             origAttributes = newOrigAttributes
         } else {
-            signal(SIGINT, SIG_IGN)
-            sigintSource.activate()
             origAttributes = nil
         }
     } else {
-        signal(SIGINT, SIG_IGN)
-        sigintSource.activate()
         origAttributes = nil
     }
 }
@@ -769,6 +767,9 @@ while RunLoop.main.run(mode: .default, before: .distantFuture) {
             return true
         case MiniboxToolsLinuxExecExitEvent.forceExit:
             logStderr(level: .info, "Force-exiting VM...")
+            exitCode = 128 + SIGINT
+        case MiniboxToolsLinuxExecExitEvent.sigint:
+            logStderr(level: .info, "Receiving SIGINT. Exiting VM...")
             exitCode = 128 + SIGINT
         case MiniboxToolsLinuxExecExitEvent.sigterm:
             logStderr(level: .info, "Receiving SIGTERM. Exiting VM...")
