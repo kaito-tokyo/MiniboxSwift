@@ -714,7 +714,7 @@ while RunLoop.main.run(mode: .default, before: .distantFuture) {
             logStderr(level: .error, "Unhandled error: \(error.localizedDescription)")
             exitCode = EX_SOFTWARE
         }
-        
+
         if var origAttributes {
             tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
         }
@@ -741,7 +741,6 @@ while RunLoop.main.run(mode: .default, before: .distantFuture) {
         exit(EX_SOFTWARE)
     }
 }
-
 
 if var origAttributes {
     tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &origAttributes)
