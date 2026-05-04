@@ -663,9 +663,8 @@ main.start { signalLine in
     if let match = signalLine.wholeMatch(of: /exit:([0-9]+)/),
         let exitCode = Int32(match.output.1)
     {
-        DispatchQueue.main.async {
-            guestExitCodeLock.withLock { $0 = exitCode }
-        }
+        guestExitCodeLock.withLock { $0 = exitCode }
+        CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
     }
 }
 
