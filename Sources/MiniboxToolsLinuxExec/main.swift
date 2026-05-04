@@ -466,14 +466,14 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     }
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-//        let data = signalPipe.fileHandleForReading.availableData
-//        let string = String(data: data, encoding: .ascii)
-//        if let match = string?.firstMatch(of: /exit:([0-9]+)\n/) {
-//            //            self.resume(returning: Int32(match.output.1) ?? 1)
-//        } else {
-//            logStderr(level: .error, "Guest did not report a valid exit code.")
-//            //            self.resume(returning: 1)
-//        }
+        //        let data = signalPipe.fileHandleForReading.availableData
+        //        let string = String(data: data, encoding: .ascii)
+        //        if let match = string?.firstMatch(of: /exit:([0-9]+)\n/) {
+        //            //            self.resume(returning: Int32(match.output.1) ?? 1)
+        //        } else {
+        //            logStderr(level: .error, "Guest did not report a valid exit code.")
+        //            //            self.resume(returning: 1)
+        //        }
     }
 
     func virtualMachine(
@@ -661,7 +661,7 @@ extension MiniboxToolsLinuxExecMainError {
         case .sharingDeviceGetError: EX_OSERR
         case .vmStartFailureError: EX_SOFTWARE
         case .vmStoppedWithError: EX_SOFTWARE
-        case .forceExit: EX_SOFTWARE
+        case .forceExit: 128 + SIGINT
         }
     }
 }
