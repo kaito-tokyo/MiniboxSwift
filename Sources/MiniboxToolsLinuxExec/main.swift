@@ -485,6 +485,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
                 exitToken.withLock {
                     $0 = MiniboxToolsLinuxExecMainError.vmStartFailureError(error)
                 }
+                CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
             }
         }
     }
@@ -499,6 +500,7 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     ) {
         logStderr(level: .error, error.localizedDescription)
         exitToken.withLock { $0 = MiniboxToolsLinuxExecMainError.vmStoppedWithError(error) }
+        CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
     }
 
     func virtualMachine(
@@ -630,9 +632,8 @@ FileHandle.standardInput.readabilityHandler = { handle in
     }
 
     if count >= forceExitCount {
-        DispatchQueue.main.async {
-            exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
-        }
+        exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
+        CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
     } else if containsCtrlc && count >= 3 {
         logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
     }
@@ -673,7 +674,7 @@ var attributes = termios()
 let origAttributes: termios?
 if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
     let newOrigAttributes = attributes
-    
+
     attributes.c_iflag &= ~tcflag_t(ICRNL)
     attributes.c_lflag &= ~tcflag_t(ICANON | ECHO | ISIG)
     if tcsetattr(FileHandle.standardInput.fileDescriptor, TCSANOW, &attributes) == 0 {
@@ -681,6 +682,7 @@ if tcgetattr(FileHandle.standardInput.fileDescriptor, &attributes) == 0 {
         newSigtermSource.setEventHandler {
             newSigtermSource.cancel()
             exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.sigterm }
+            CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
         }
         newSigtermSource.activate()
         signal(SIGTERM, SIG_IGN)
