@@ -352,7 +352,8 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
 
     private let signalPipe = Pipe()
     private let signalBuffer = OSAllocatedUnfairLock(initialState: Data())
-    private let signalQueue = DispatchQueue(label: "tokyo.kaito.MiniboxSwift.MiniboxToolsLinuxExec.signal")
+    private let signalQueue = DispatchQueue(
+        label: "tokyo.kaito.MiniboxSwift.MiniboxToolsLinuxExec.signal")
 
     init(
         exitToken: OSAllocatedUnfairLock<(any Error)?>,
@@ -445,7 +446,8 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
     }
 
     func start(signalHandler: @escaping @Sendable (String) -> Void) {
-        let signalQueue = DispatchQueue(label: "tokyo.kaito.MiniboxSwift.MiniboxToolsLinuxExec.signal")
+        let signalQueue = DispatchQueue(
+            label: "tokyo.kaito.MiniboxSwift.MiniboxToolsLinuxExec.signal")
         let signalBuffer = self.signalBuffer
 
         signalPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -458,16 +460,16 @@ class MiniboxToolsLinuxExecMain: NSObject, VZVirtualMachineDelegate {
 
             signalBuffer.withLock { data in
                 data.append(receivedData)
-                
+
                 while let newlineIndex = data.firstIndex(of: 0x0a) {
                     let lineData = data[..<newlineIndex]
                     data.removeSubrange(...newlineIndex)
-                    
+
                     guard let line = String(data: lineData, encoding: .utf8) else {
                         logStderr(level: .error, "Invalid signal line received. Discarding...")
                         continue
                     }
-                    
+
                     signalQueue.async {
                         signalHandler(line)
                     }
@@ -631,7 +633,7 @@ main.start { signalLine in
     if let match = signalLine.firstMatch(of: /exit:([0-9]+)\n/),
         let exitCode = Int32(match.output.1)
     {
-        guestExitCodeLock.withLock{ $0 = exitCode }
+        guestExitCodeLock.withLock { $0 = exitCode }
     }
 }
 
