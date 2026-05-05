@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //
-// Tests/MiniboxTests/ParseArgsWithPassthroughTests.swift
+// Tests/MiniboxTests/ParseArgsWithPassthruTests.swift
 // MiniboxSwift
 //
 // Version: 0.1.0

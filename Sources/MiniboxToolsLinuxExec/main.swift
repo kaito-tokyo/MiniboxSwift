@@ -650,47 +650,56 @@ let inputPipe = Pipe()
 let ctrlcLock = OSAllocatedUnfairLock(initialState: 0)
 let forceExitCount = 10
 
-FileHandle.standardInput.readabilityHandler = { handle in
-    let data = handle.availableData
-
-    guard !data.isEmpty else {
-        handle.readabilityHandler = nil
-        try? inputPipe.fileHandleForWriting.close()
-        return
-    }
-
-    try? inputPipe.fileHandleForWriting.write(contentsOf: data)
-
-    let (count, containsCtrlc) = ctrlcLock.withLock { count in
-        var newCount = count
-        var containsCtrlc = false
-        for byte in data {
-            if byte == 0x03 {
-                newCount += 1
-                containsCtrlc = true
-            } else if byte == 0x1b {
-                break
-            } else if byte >= 0x20 && byte != 0x7f {
-                newCount = 0
-            }
+if noTTY {
+    FileHandle.standardInput.readabilityHandler = { handle in
+        let data = handle.availableData
+        
+        guard !data.isEmpty else {
+            handle.readabilityHandler = nil
+            try? inputPipe.fileHandleForWriting.close()
+            return
         }
-        count = newCount
-        return (newCount, containsCtrlc)
+        
+        try? inputPipe.fileHandleForWriting.write(contentsOf: data)
+        
+        let (count, containsCtrlc) = ctrlcLock.withLock { count in
+            var newCount = count
+            var containsCtrlc = false
+            for byte in data {
+                if byte == 0x03 {
+                    newCount += 1
+                    containsCtrlc = true
+                } else if byte == 0x1b {
+                    break
+                } else if byte >= 0x20 && byte != 0x7f {
+                    newCount = 0
+                }
+            }
+            count = newCount
+            return (newCount, containsCtrlc)
+        }
+        
+        if count >= forceExitCount {
+            exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
+            CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
+        } else if containsCtrlc && count >= 3 {
+            logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
+        }
     }
-
-    if count >= forceExitCount {
-        exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
-        CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
-    } else if containsCtrlc && count >= 3 {
-        logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
-    }
+    
+    main.attachConsole(
+        standardInput: inputPipe.fileHandleForReading,
+        standardOutput: FileHandle.standardOutput,
+        standardError: FileHandle.standardError,
+    )
+} else {
+    main.attachConsole(
+        standardInput: FileHandle.standardInput,
+        standardOutput: FileHandle.standardOutput,
+        standardError: FileHandle.standardError,
+    )
 }
 
-main.attachConsole(
-    standardInput: inputPipe.fileHandleForReading,
-    standardOutput: FileHandle.standardOutput,
-    standardError: FileHandle.standardError,
-)
 
 if let sharedURL {
     main.sharedDirectoryDevice.share = VZSingleDirectoryShare(

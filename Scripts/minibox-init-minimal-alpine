@@ -55,7 +55,7 @@ _extract_image() {
 	local positions
 	positions=($(LC_ALL=C grep -abo $'\x1f\x8b\x08' vmlinuz-virt | LC_ALL=C tr -cd '0-9\n'))
 
-	local found pos
+	local found=0 pos
 	for pos in "$positions[@]"; do
 		tail -c "+$((pos + 1))" vmlinuz-virt >Image.gz
 		gunzip Image.gz || true
