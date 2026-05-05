@@ -653,15 +653,15 @@ let forceExitCount = 10
 if noTTY {
     FileHandle.standardInput.readabilityHandler = { handle in
         let data = handle.availableData
-        
+
         guard !data.isEmpty else {
             handle.readabilityHandler = nil
             try? inputPipe.fileHandleForWriting.close()
             return
         }
-        
+
         try? inputPipe.fileHandleForWriting.write(contentsOf: data)
-        
+
         let (count, containsCtrlc) = ctrlcLock.withLock { count in
             var newCount = count
             var containsCtrlc = false
@@ -678,7 +678,7 @@ if noTTY {
             count = newCount
             return (newCount, containsCtrlc)
         }
-        
+
         if count >= forceExitCount {
             exitToken.withLock { $0 = MiniboxToolsLinuxExecExitEvent.forceExit }
             CFRunLoopWakeUp(RunLoop.main.getCFRunLoop())
@@ -686,7 +686,7 @@ if noTTY {
             logStderr(level: .info, "Ctrl-C \(forceExitCount - count) times to force-exit VM...")
         }
     }
-    
+
     main.attachConsole(
         standardInput: inputPipe.fileHandleForReading,
         standardOutput: FileHandle.standardOutput,
@@ -699,7 +699,6 @@ if noTTY {
         standardError: FileHandle.standardError,
     )
 }
-
 
 if let sharedURL {
     main.sharedDirectoryDevice.share = VZSingleDirectoryShare(
