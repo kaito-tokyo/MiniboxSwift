@@ -1,0 +1,43 @@
+#!/bin/dash
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# file: Scripts/minibox-init
+# author: Kaito Udagawa <umireon@kaito.tokyo>
+# version: 0.1.0
+# date: 2026-04-30
+
+set -eu
+
+MINIBOX_VERSION=0.1.0
+: "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
+
+usage() {
+	printf 'minibox-init: Initializes the Minibox data directory and tools.\n'
+	printf 'Usage: minibox-init\n'
+}
+
+if [ "$#" -gt 0 ]; then
+	case "$1" in
+	--version)
+		printf 'minibox-init %s\n' "$MINIBOX_VERSION"
+		exit 0
+		;;
+	--help)
+		usage
+		exit 0
+		;;
+	*)
+		printf 'ERROR: Unexpected arguments found.' >&2
+		usage >&2
+		exit 64
+		;;
+	esac
+fi
+
+[ -n "${MINIBOX_PATH:-}" ] && PATH="$MINIBOX_PATH:$PATH"
+export MINIBOX_DATA_DIR MINIBOX_PATH
+
+minibox-init-minimal-alpine

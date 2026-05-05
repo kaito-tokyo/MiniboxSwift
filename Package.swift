@@ -11,13 +11,15 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "minibox-create-base-macos", targets: ["MiniboxCreateBaseMacOS"]),
-        .executable(name: "minibox-view", targets: ["MiniboxView"]),
         .executable(name: "minibox-run", targets: ["MiniboxRun"]),
+        .executable(name: "minibox-tools-linux-exec", targets: ["MiniboxToolsLinuxExec"]),
+        .executable(name: "minibox-view", targets: ["MiniboxView"]),
     ],
     targets: [
         .executableTarget(name: "MiniboxCreateBaseMacOS"),
-        .executableTarget(name: "MiniboxView"),
         .executableTarget(name: "MiniboxRun"),
+        .executableTarget(name: "MiniboxToolsLinuxExec"),
+        .executableTarget(name: "MiniboxView"),
         .testTarget(name: "MiniboxTests"),
     ],
     swiftLanguageModes: [.v6]

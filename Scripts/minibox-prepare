@@ -11,9 +11,8 @@
 
 setopt errexit nounset nullglob pipefail warn_create_global
 
-MINIBOX_VERSION="0.1.0"
+MINIBOX_VERSION=0.1.0
 : "${MINIBOX_DATA_DIR:=$HOME/Library/Application Support/tokyo.kaito.MiniboxSwift.minibox}"
-export MINIBOX_DATA_DIR
 
 usage() {
 	printf 'Usage: minibox-prepare --base-image-name=NAME --variant=NAME\n'
@@ -77,15 +76,15 @@ if (($(getoption --help flag))); then
 	exit 0
 fi
 
-variant=$(getoption --variant required)
+subcommand="minibox-prepare-$(getoption --variant required)"
 
-prepare_command="minibox-prepare-${variant}"
+[ -n "${MINIBOX_PATH:-}" ] && PATH="$MINIBOX_PATH:$PATH"
+export MINIBOX_DATA_DIR
 
-if ! whence "${prepare_command}" >/dev/null 2>&1; then
-	printf 'ERROR: Unsupported variant: %s\n' "${variant}" >&2
-	printf 'ERROR: Command %s not found.\n' "${prepare_command}" >&2
+if ! whence "$subcommand" >/dev/null 2>&1; then
+	printf 'ERROR: Unsupported subcommand %s\n' "$subcommand" >&2
 	usage >&2
-	exit 127
+	exit 64
 fi
 
-"${prepare_command}" "${(kv)opts[@]}" -- "${posArgs[@]}"
+"$subcommand" "${(kv)opts[@]}" -- "${posArgs[@]}"
