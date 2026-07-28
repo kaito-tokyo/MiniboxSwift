@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>macOS Runner Setup</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, sans-serif; }
+    body { margin: 24px; line-height: 1.5; }
+    h1 { font-size: 1.5rem; }
+    h2 { margin-top: 1.5rem; font-size: 1.1rem; }
+    label { display: block; margin: .7rem 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .note { color: color-mix(in srgb, CanvasText 72%, Canvas); }
+    .automatic { border-left: 4px solid #268bd2; padding-left: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>macOS Runner Setup</h1>
+  <p>Complete these steps in the virtual machine. The checklist is a visual aid only and is not saved.</p>
+
+  <h2>Setup Assistant</h2>
+  <label><input type="checkbox"> Set language to English.</label>
+  <label><input type="checkbox"> Select United States as the country or region.</label>
+  <label><input type="checkbox"> On Transfer Your Data to This Mac, select <strong>Set up as new</strong>.</label>
+  <label><input type="checkbox"> Continue through Data &amp; Privacy and agree to the Terms and Conditions.</label>
+  <label><input type="checkbox"> Leave Location Services disabled by choosing <strong>Don't Use</strong>.</label>
+  <label><input type="checkbox"> Set timezone to UTC.</label>
+  <label><input type="checkbox"> Confirm the pre-created <code>runner</code> account appears, then sign in with password <code>runner</code>.</label>
+  <label><input type="checkbox"> On Update Mac Automatically, choose <strong>Only Download Automatically</strong>.</label>
+  <label><input type="checkbox"> Skip Apple Account sign-in by choosing <strong>Other Sign-In Options</strong>, then <strong>Set Up Later</strong>.</label>
+  <label><input type="checkbox"> Select the appropriate age range.</label>
+  <label><input type="checkbox"> Skip Screen Time by choosing <strong>Set Up Later</strong>.</label>
+  <label><input type="checkbox"> Leave FileVault off and confirm <strong>Continue</strong>.</label>
+
+  <h2>Enable Remote Login Manually</h2>
+  <p>After the desktop appears, open Terminal in the guest and run:</p>
+  <p><code>sudo systemsetup -setremotelogin on</code><br>
+    <code>sudo systemsetup -getremotelogin</code></p>
+  <label><input type="checkbox"> Confirm that the second command reports <strong>Remote Login: On</strong>.</label>
+  <p class="note">If macOS reports that Full Disk Access is required, open System Settings &gt; General &gt; Sharing and turn on <strong>Remote Login</strong> there.</p>
+
+  <div class="automatic">
+    <h2>Automatic Finalization</h2>
+    <p>After Remote Login is enabled, Minibox automatically configures the remaining runner settings through the guest startup service. It verifies them and shuts down macOS from inside the guest.</p>
+    <p><strong>Do not close MiniboxView or shut down the host-side VM.</strong> Wait for the guest to power off automatically.</p>
+    <p class="note">If automatic finalization fails, the guest remains running. Check <code>/var/log/minibox-finalize.log</code> from the serial console.</p>
+  </div>
+</body>
+</html>

@@ -13,9 +13,11 @@
 import AppKit
 import Foundation
 import Virtualization
+import WebKit
 import os
 
 private let kVersion = "0.1.0"
+private let kCompanionWidth = 420
 
 private let kUsage = """
     minibox-view: Starts a new VM with an image bundle to view its contents.
@@ -26,6 +28,7 @@ private let kUsage = """
       --width=1024        Width pixels of the vm. Optional.
       --height=768        Height pixels of the vm. Optional.
       --dpi=72            DPI value of the vm. Optional.
+      --html-path=PATH    Local HTML companion to show beside the VM. Optional.
     """
 
 private func logStderr(
@@ -131,6 +134,22 @@ guard let dpi = Int(opts.removeValue(forKey: "--dpi") ?? "72"), dpi > 0 else {
     exit(64)
 }
 
+let companionHTMLURL: URL?
+if let htmlPath = opts.removeValue(forKey: "--html-path") {
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: htmlPath, isDirectory: &isDirectory),
+        !isDirectory.boolValue
+    else {
+        logStderr(level: .error, "--html-path is not a file: \(htmlPath)")
+        logStderr(level: .default, kUsage)
+        exit(1)
+    }
+    companionHTMLURL = URL(filePath: htmlPath, directoryHint: .notDirectory).standardizedFileURL
+} else {
+    companionHTMLURL = nil
+}
+let companionHTMLDescription = companionHTMLURL?.absoluteString ?? "(none)"
+
 if !opts.isEmpty {
     logStderr(level: .error, "Unrecognized options found.")
     logStderr(level: .default, kUsage)
@@ -149,6 +168,7 @@ print(
     "width:\(width)",
     "height:\(height)",
     "dpi:\(dpi)",
+    "companionHTMLURL:\(companionHTMLDescription)",
     separator: "\t",
 )
 
@@ -381,7 +401,13 @@ class MiniboxViewWindow: NSWindow, NSWindowDelegate {
     private let vm: VZVirtualMachine
     private let vmView: VZVirtualMachineView
 
-    init(app: NSApplication, vm: VZVirtualMachine, contentRect: NSRect) {
+    init(
+        app: NSApplication,
+        vm: VZVirtualMachine,
+        companionHTMLURL: URL?,
+        vmWidth: Int,
+        contentRect: NSRect
+    ) {
         self.app = app
         self.vm = vm
         let vmView = VZVirtualMachineView()
@@ -395,7 +421,23 @@ class MiniboxViewWindow: NSWindow, NSWindowDelegate {
             defer: false
         )
 
-        contentView = vmView
+        if let companionHTMLURL {
+            let companionView = WKWebView()
+            companionView.loadFileURL(
+                companionHTMLURL,
+                allowingReadAccessTo: companionHTMLURL.deletingLastPathComponent()
+            )
+
+            let splitView = NSSplitView()
+            splitView.isVertical = true
+            splitView.addArrangedSubview(vmView)
+            splitView.addArrangedSubview(companionView)
+            contentView = splitView
+            splitView.layoutSubtreeIfNeeded()
+            splitView.setPosition(CGFloat(vmWidth), ofDividerAt: 0)
+        } else {
+            contentView = vmView
+        }
         delegate = self
         title = "MiniboxView"
 
@@ -427,21 +469,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let vm: VZVirtualMachine
     private let width: Int
     private let height: Int
+    private let companionHTMLURL: URL?
 
     private var window: NSWindow?
 
-    init(app: NSApplication, vm: VZVirtualMachine, width: Int, height: Int) {
+    init(
+        app: NSApplication,
+        vm: VZVirtualMachine,
+        width: Int,
+        height: Int,
+        companionHTMLURL: URL?
+    ) {
         self.app = app
         self.vm = vm
         self.width = width
         self.height = height
+        self.companionHTMLURL = companionHTMLURL
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = MiniboxViewWindow(
             app: app,
             vm: vm,
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height)
+            companionHTMLURL: companionHTMLURL,
+            vmWidth: width,
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: companionHTMLURL == nil ? width : width + kCompanionWidth,
+                height: height
+            )
         )
         window.makeKeyAndOrderFront(nil)
         window.center()
@@ -453,7 +510,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 let app = NSApplication.shared
 vmDelegate.app = app
 
-let appDelegate = AppDelegate(app: app, vm: vm, width: width, height: height)
+let appDelegate = AppDelegate(
+    app: app,
+    vm: vm,
+    width: width,
+    height: height,
+    companionHTMLURL: companionHTMLURL
+)
 app.delegate = appDelegate
 
 app.setActivationPolicy(.regular)
