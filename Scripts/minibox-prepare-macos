@@ -20,6 +20,7 @@ usage() {
 	printf '  --force                  Force to overwrite existing files.\n'
 	printf '  --sudo=sudo              Command to use for sudo operations. Optional.\n'
 	printf '  --skip-steps=S1,S2       Comma-separated list of step names to skip. Optional.\n'
+	printf '  --html-path=PATH         Setup companion HTML path. Optional.\n'
 	printf '  --step=NAME	           Step name to execute. Internal use only.\n'
 	printf '  --minibox-data-dir=PATH  Value of MINIBOX_DATA_DIR. Internal use only.\n'
 }
@@ -78,6 +79,7 @@ baseImageName="$(getoption --base-image-name required)"
 force="$(getoption --force flag)"
 sudo="${$(getoption --sudo):-sudo}"
 skipSteps=("${(s:,:)$(getoption --skip-steps)}")
+htmlPath="${$(getoption --html-path):-${MINIBOX_SHARE_DIR:-/usr/local/share/minibox}/Setup-macOS-Runner.html}"
 step="${$(getoption --step):-all}"
 miniboxDataDir="${$(getoption --minibox-data-dir):-$MINIBOX_DATA_DIR}"
 
@@ -85,6 +87,10 @@ srcBaseImagePath="$miniboxDataDir/BaseImages/$baseImageName.miniboxvm"
 destBaseImagePath="$miniboxDataDir/BaseImages/${baseImageName}_github.miniboxvm"
 volumePath="$miniboxDataDir/Volumes/${baseImageName}_github"
 scriptPath="$0"
+finalizeScriptPath="${0:A:h}/minibox-finalize-macos"
+if [[ ! -f "$finalizeScriptPath" ]]; then
+	finalizeScriptPath="${MINIBOX_SHARE_DIR:-/usr/local/share/minibox}/minibox-finalize-macos"
+fi
 
 minibox-prepare-macos-all() {
 	trap "diskutil eject \"$volumePath/Data\" >/dev/null 2>&1 || true" INT TERM EXIT
@@ -172,12 +178,37 @@ EOF
 EOF
 	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-console.plist
 
+	cat <<'EOF' >Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-finalize.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>tokyo.kaito.MiniboxSwift.minibox-finalize</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/minibox-finalize-macos</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<false/>
+	<key>StandardOutPath</key>
+	<string>/var/log/minibox-finalize.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/minibox-finalize.log</string>
+</dict>
+</plist>
+EOF
+	chmod 644 Library/LaunchDaemons/tokyo.kaito.MiniboxSwift.minibox-finalize.plist
+
 	mkdir -p usr/local/libexec
 	cat <<'EOF' >usr/local/libexec/minibox-init.sh
 sysadminctl -addUser runner -password runner -admin
 sysadminctl -autologin set -userName runner -password runner
 EOF
 	chmod 755 usr/local/libexec/minibox-init.sh
+	install -m 755 "$finalizeScriptPath" usr/local/libexec/minibox-finalize-macos
 }
 
 minibox-prepare-macos-eject() {
@@ -186,7 +217,7 @@ minibox-prepare-macos-eject() {
 
 minibox-prepare-macos-manualsetup() {
 	printf '#==> Starting manual setup...\n'
-	minibox-view --bundle-path "$destBaseImagePath"
+	minibox-view --bundle-path "$destBaseImagePath" --html-path "$htmlPath"
 }
 
 [ -n "${MINIBOX_PATH:-}" ] && PATH="$MINIBOX_PATH:$PATH"

@@ -1,0 +1,113 @@
+#!/bin/dash
+
+# SPDX-FileCopyrightText: 2026 Kaito Udagawa <umireon@kaito.tokyo>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+runner_user=runner
+runner_password=runner
+computer_name=kaito-tokyo-macos-26
+completion_marker=/var/db/.MiniboxSetupComplete
+setup_marker=/var/db/.AppleSetupDone
+
+log() {
+	printf '[minibox-finalize] %s\n' "$*"
+}
+
+fail() {
+	log "ERROR: $*"
+	exit 1
+}
+
+if [ "$(id -u)" -ne 0 ]; then
+	fail 'This script must run as root.'
+fi
+
+if [ -e "$completion_marker" ]; then
+	log 'The guest is already finalized.'
+	exit 0
+fi
+
+setup_assistant_finished() {
+	if [ -e "$setup_marker" ]; then
+		return 0
+	fi
+
+	if ! runner_uid="$(/usr/bin/id -u "$runner_user" 2>/dev/null)"; then
+		return 1
+	fi
+
+	/bin/launchctl print "gui/$runner_uid" >/dev/null 2>&1 \
+		&& /usr/bin/pgrep -q -u "$runner_uid" -x Dock
+}
+
+log 'Waiting for Setup Assistant to finish...'
+while ! setup_assistant_finished; do
+	sleep 5
+done
+
+log 'Waiting for Remote Login to be enabled manually...'
+while ! /bin/launchctl print system/com.openssh.sshd >/dev/null 2>&1; do
+	sleep 5
+done
+
+log 'Applying machine settings...'
+current_autologin_user="$(/usr/bin/defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)"
+if [ "$current_autologin_user" != "$runner_user" ]; then
+	/usr/sbin/sysadminctl -autologin set -userName "$runner_user" -password "$runner_password"
+fi
+
+/usr/sbin/scutil --set ComputerName "$computer_name"
+/usr/sbin/scutil --set LocalHostName "$computer_name"
+/usr/sbin/scutil --set HostName "$computer_name"
+
+/usr/bin/defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool false
+/usr/bin/defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticallyInstallMacOSUpdates -bool false
+/usr/bin/defaults write /Library/Preferences/com.apple.SoftwareUpdate ConfigDataInstall -bool false
+/usr/bin/defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall -bool false
+/usr/bin/defaults write /Library/Preferences/com.apple.commerce AutoUpdate -bool false
+
+/usr/bin/pmset -a sleep 0
+/usr/bin/pmset -a displaysleep 0
+/usr/bin/pmset -a disksleep 0
+/usr/bin/pmset -a powernap 0
+/usr/bin/pmset -a standby 0
+
+/usr/bin/mdutil -a -i off
+
+runner_uid="$(/usr/bin/id -u "$runner_user")"
+runner_home="$(/usr/bin/dscl . -read "/Users/$runner_user" NFSHomeDirectory | /usr/bin/awk '{print $2}')"
+
+run_as_runner() {
+	/bin/launchctl asuser "$runner_uid" /usr/bin/sudo -u "$runner_user" HOME="$runner_home" "$@"
+}
+
+log 'Applying runner desktop settings...'
+run_as_runner /usr/bin/defaults write com.apple.assistant.support 'Assistant Enabled' -bool false
+run_as_runner /usr/bin/defaults write com.apple.Siri StatusMenuVisible -bool false
+run_as_runner /usr/bin/defaults write com.apple.WindowManager StandardHideWidgets -bool true
+run_as_runner /usr/bin/defaults write com.apple.WindowManager StageManagerHideWidgets -bool true
+run_as_runner /usr/bin/defaults -currentHost write com.apple.screensaver idleTime -int 0
+run_as_runner /usr/bin/defaults write com.apple.screensaver askForPassword -bool false
+run_as_runner /usr/bin/defaults write com.apple.screensaver askForPasswordDelay -int 2147483647
+
+log 'Verifying settings...'
+[ "$(/usr/sbin/scutil --get ComputerName)" = "$computer_name" ]
+[ "$(/usr/sbin/scutil --get LocalHostName)" = "$computer_name" ]
+[ "$(/usr/sbin/scutil --get HostName)" = "$computer_name" ]
+/bin/launchctl print system/com.openssh.sshd >/dev/null
+/usr/bin/fdesetup status | /usr/bin/grep -q 'FileVault is Off'
+[ "$(/usr/bin/defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload)" = '0' ]
+[ "$(/usr/bin/defaults read /Library/Preferences/com.apple.commerce AutoUpdate)" = '0' ]
+/usr/bin/pmset -g custom | /usr/bin/grep -Eq '^[[:space:]]+sleep[[:space:]]+0$'
+/usr/bin/pmset -g custom | /usr/bin/grep -Eq '^[[:space:]]+displaysleep[[:space:]]+0$'
+/usr/bin/pmset -g custom | /usr/bin/grep -Eq '^[[:space:]]+disksleep[[:space:]]+0$'
+/usr/bin/id -Gn "$runner_user" | /usr/bin/grep -qw admin
+[ "$(/usr/bin/defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser)" = "$runner_user" ]
+
+/usr/bin/touch "$completion_marker"
+/bin/sync
+log 'Finalization succeeded. Shutting down the guest...'
+/sbin/shutdown -h now
